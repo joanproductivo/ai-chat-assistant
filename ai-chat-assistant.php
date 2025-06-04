@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.6.2
+Version: 1.7.9
 Author: Joan Planas & IA
 */
 
@@ -64,7 +64,7 @@ function ai_chat_pro_should_show_chat() {
     return true;
 }
 
-// Encolar scripts y estilos con mejor compatibilidad para WP Rocket
+// Encolar scripts y estilos con compatibilidad mejorada para WP Rocket y otros plugins de cache
 add_action('wp_enqueue_scripts', 'ai_chat_pro_enqueue_scripts');
 function ai_chat_pro_enqueue_scripts() {
     // Verificar si el chat debe mostrarse en esta página
@@ -72,9 +72,11 @@ function ai_chat_pro_enqueue_scripts() {
         return;
     }
     
-    $plugin_version = '1.5.3'; // Actualizada versión
+    // Generar un hash único basado en los colores actuales para forzar actualización de cache
+    $colors_hash = ai_chat_pro_get_colors_hash();
+    $plugin_version = '1.7.7-' . $colors_hash; // Versión con hash de colores
 
-    // Registrar y encolar CSS con prioridad alta para evitar problemas de cache
+    // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(
         'ai-chat-pro-styles',
         plugin_dir_url(__FILE__) . 'ai-chat-pro-styles.css',
@@ -87,7 +89,7 @@ function ai_chat_pro_enqueue_scripts() {
     $custom_css = ai_chat_pro_generate_custom_css();
     wp_add_inline_style('ai-chat-pro-styles', $custom_css);
 
-    // Registrar script externo en lugar de inline para mejor compatibilidad
+    // Registrar script externo con la misma versión para consistencia
     wp_enqueue_script(
         'ai-chat-pro-js',
         plugin_dir_url(__FILE__) . 'ai-chat-pro-script.js',
@@ -103,6 +105,7 @@ function ai_chat_pro_enqueue_scripts() {
     wp_localize_script('ai-chat-pro-js', 'aiChatPro', array(
         'rest_url_message' => esc_url_raw(rest_url('ai-chat-pro/v1/message')),
         'rest_url_check'   => esc_url_raw(rest_url('ai-chat-pro/v1/check')),
+        'rest_url_config'  => esc_url_raw(rest_url('ai-chat-pro/v1/config')),
         'nonce'            => wp_create_nonce('wp_rest'),
         'initial_greeting' => get_option('ai_chat_pro_initial_greeting', __('¡Hola! ¿En qué puedo ayudarte hoy?', 'ai-chat-pro')),
         'limit_exceeded'   => get_option('ai_chat_pro_limit_exceeded', __('Has alcanzado el límite de mensajes de hoy. Vuelve mañana. Gracias.', 'ai-chat-pro')),
@@ -120,6 +123,10 @@ function ai_chat_pro_enqueue_scripts() {
         'close_chat_label' => __('Cerrar chat', 'ai-chat-pro'),
         'type_message_label' => __('Mensaje para Ayudante', 'ai-chat-pro'), // Podrías querer actualizar esto dinámicamente si 'ai_label' cambia mucho.
         'thinking_saved_text' => __('Está escribiendo... (refreshed)', 'ai-chat-pro'),
+        'auto_open_config' => ai_chat_pro_get_auto_open_config(),
+        'site_url'         => home_url(),
+        'current_time'     => current_time('timestamp'),
+        'timezone_offset'  => get_option('gmt_offset') * HOUR_IN_SECONDS,
     ));
 }
 
@@ -446,12 +453,15 @@ function ai_chat_pro_register_all_settings() {
     register_setting($setting_group, 'ai_chat_pro_message_limit', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 10]);
     register_setting($setting_group, 'ai_chat_pro_limit_exceeded', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Has alcanzado el límite de mensajes de hoy. Vuelve mañana. Gracias.', 'ai-chat-pro')]);
     register_setting($setting_group, 'ai_chat_pro_start_opened', ['sanitize_callback' => 'rest_sanitize_boolean', 'type' => 'boolean', 'default' => false]);
+    register_setting($setting_group, 'ai_chat_pro_auto_open_enabled', ['sanitize_callback' => 'rest_sanitize_boolean', 'type' => 'boolean', 'default' => false]);
+    register_setting($setting_group, 'ai_chat_pro_auto_open_pages', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 3]);
     register_setting($setting_group, 'ai_chat_pro_rate_limit_count', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 30]);
     register_setting($setting_group, 'ai_chat_pro_rate_limit_duration', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => HOUR_IN_SECONDS]);
     register_setting($setting_group, 'ai_chat_pro_excluded_pages', ['sanitize_callback' => 'sanitize_textarea_field', 'type' => 'string', 'default' => '']);
 
     // Configuración de colores
     register_setting($setting_group, 'ai_chat_pro_primary_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#6a0dad']);
+    register_setting($setting_group, 'ai_chat_pro_bubble_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#6a0dad']);
     register_setting($setting_group, 'ai_chat_pro_secondary_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#9370db']);
     register_setting($setting_group, 'ai_chat_pro_accent_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#4b0082']);
     register_setting($setting_group, 'ai_chat_pro_text_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#ffffff']);
@@ -478,18 +488,21 @@ function ai_chat_pro_register_all_settings() {
     add_settings_field('ai_chat_pro_send_button_text', __('Texto Botón Enviar', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_send_button_text', 'width' => '150px']);
     
     add_settings_field('ai_chat_pro_start_opened', __('Abrir Chat al Cargar Página', 'ai-chat-pro'), 'ai_chat_pro_field_checkbox_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_start_opened', 'desc' => __('Si se marca, el chat flotante aparecerá abierto.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_auto_open_enabled', __('Apertura Automática por Páginas Visitadas', 'ai-chat-pro'), 'ai_chat_pro_field_checkbox_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_auto_open_enabled', 'desc' => __('Si se marca, el chat se abrirá automáticamente después de visitar el número de páginas especificado.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_auto_open_pages', __('Número de Páginas para Apertura Automática', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_auto_open_pages', 'default' => 3, 'desc' => __('Número de páginas que el usuario debe visitar antes de que el chat se abra automáticamente. Solo funciona si la opción anterior está activada.', 'ai-chat-pro')]);
 
     // Sección de Límites y Restricciones
     add_settings_section('ai_chat_pro_limits_section', __('Límites y Restricciones', 'ai-chat-pro'), null, $page_slug);
-    add_settings_field('ai_chat_pro_message_limit', __('Límite de Mensajes por Día (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_message_limit', 'desc' => __('Número de mensajes que un usuario (identificado por IP) puede enviar por día. Se usa por el JS para mostrar un aviso, no es un límite duro en servidor.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_message_limit', __('Límite de Mensajes por Día (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_message_limit', 'default' => 10, 'desc' => __('Número de mensajes que un usuario (identificado por IP) puede enviar por día. Se usa por el JS para mostrar un aviso, no es un límite duro en servidor.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_limit_exceeded', __('Mensaje Límite Alcanzado', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_limit_exceeded', 'width' => '500px']);
-    add_settings_field('ai_chat_pro_rate_limit_count', __('Límite de Solicitudes API (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_count', 'desc' => __('Número máximo de solicitudes a la API de OpenAI por IP dentro de la duración especificada. Es un límite a nivel de servidor.', 'ai-chat-pro')]);
-    add_settings_field('ai_chat_pro_rate_limit_duration', __('Duración del Límite de Solicitudes (segundos)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_duration', 'desc' => __('Tiempo en segundos para el cual se aplica el límite de solicitudes. Por defecto: 3600 (1 hora).', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_rate_limit_count', __('Límite de Solicitudes API (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_count', 'default' => 30, 'desc' => __('Número máximo de solicitudes a la API de OpenAI por IP dentro de la duración especificada. Es un límite a nivel de servidor.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_rate_limit_duration', __('Duración del Límite de Solicitudes (segundos)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_duration', 'default' => 3600, 'desc' => __('Tiempo en segundos para el cual se aplica el límite de solicitudes. Por defecto: 3600 (1 hora).', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_excluded_pages', __('Páginas Excluidas', 'ai-chat-pro'), 'ai_chat_pro_field_textarea_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_excluded_pages', 'desc' => __('Lista de páginas donde NO mostrar el chat. Separa con comas. Puedes usar: IDs de página (ej: 123), slugs (ej: contacto), o rutas (ej: /tienda/checkout). Ejemplo: 123, contacto, /tienda/checkout', 'ai-chat-pro')]);
 
     // Sección de Colores del Chat
     add_settings_section('ai_chat_pro_colors_section', __('Colores del Chat', 'ai-chat-pro'), 'ai_chat_pro_colors_section_callback', $page_slug);
-    add_settings_field('ai_chat_pro_primary_color', __('Color Principal (Burbuja y Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_primary_color', 'default' => '#6a0dad', 'desc' => __('Color principal del chat, usado en la burbuja flotante y el header.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_primary_color', __('Color Principal (Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_primary_color', 'default' => '#6a0dad', 'desc' => __('Color principal del header del chat.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_bubble_color', __('Color de la Burbuja Flotante', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_bubble_color', 'default' => '#6a0dad', 'desc' => __('Color específico para la burbuja flotante del chat.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_secondary_color', __('Color Secundario (Mensajes Usuario)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_secondary_color', 'default' => '#9370db', 'desc' => __('Color de fondo de los mensajes del usuario.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_accent_color', __('Color de Acento (Hover y Enlaces)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_accent_color', 'default' => '#4b0082', 'desc' => __('Color usado para efectos hover y enlaces.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_text_color', __('Color de Texto (Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_text_color', 'default' => '#ffffff', 'desc' => __('Color del texto en el header del chat.', 'ai-chat-pro')]);
@@ -531,6 +544,12 @@ function ai_chat_pro_field_number_cb($args) {
     $option_name = $args['id'];
     $default_value = isset($args['default']) ? $args['default'] : 0;
     $value = get_option($option_name, $default_value);
+    
+    // Si no hay valor guardado y hay un default, usar el default
+    if ($value === false || $value === '') {
+        $value = $default_value;
+    }
+    
     echo "<input type='number' id='" . esc_attr($option_name) . "' name='" . esc_attr($option_name) . "' value='" . esc_attr($value) . "' min='0' style='width: 100px;' />";
     if (!empty($args['desc'])) echo "<p class='description'>" . esc_html($args['desc']) . "</p>";
 }
@@ -595,6 +614,7 @@ function ai_chat_pro_colors_section_callback() {
         if (confirm("' . esc_js(__('¿Estás seguro de que quieres resetear todos los colores a los valores por defecto?', 'ai-chat-pro')) . '")) {
             var colorDefaults = {
                 "ai_chat_pro_primary_color": "#6a0dad",
+                "ai_chat_pro_bubble_color": "#6a0dad",
                 "ai_chat_pro_secondary_color": "#9370db", 
                 "ai_chat_pro_accent_color": "#4b0082",
                 "ai_chat_pro_text_color": "#ffffff",
@@ -624,6 +644,7 @@ function ai_chat_pro_colors_section_callback() {
 function ai_chat_pro_generate_custom_css() {
     // Obtener colores configurados o usar valores por defecto
     $primary_color = get_option('ai_chat_pro_primary_color', '#6a0dad');
+    $bubble_color = get_option('ai_chat_pro_bubble_color', '#6a0dad');
     $secondary_color = get_option('ai_chat_pro_secondary_color', '#9370db');
     $accent_color = get_option('ai_chat_pro_accent_color', '#4b0082');
     $text_color = get_option('ai_chat_pro_text_color', '#ffffff');
@@ -638,6 +659,7 @@ function ai_chat_pro_generate_custom_css() {
     /* Colores personalizados del chat */
     :root {
         --ai-chat-pro-primary-color: {$primary_color} !important;
+        --ai-chat-pro-bubble-color: {$bubble_color} !important;
         --ai-chat-pro-secondary-color: {$secondary_color} !important;
         --ai-chat-pro-accent-color: {$accent_color} !important;
         --ai-chat-pro-text-color: {$text_color} !important;
@@ -646,10 +668,10 @@ function ai_chat_pro_generate_custom_css() {
 
     /* Burbuja flotante */
     #ai-chat-pro-bubble {
-        background-color: {$primary_color} !important;
+        background-color: {$bubble_color} !important;
     }
     #ai-chat-pro-bubble:hover {
-        background-color: {$accent_color} !important;
+        background-color: " . ai_chat_pro_darken_color($bubble_color, 15) . " !important;
     }
 
     /* Header del chat */
@@ -765,6 +787,163 @@ function ai_chat_pro_lighten_color($hex, $percent) {
     $b = min(255, $b + ($percent / 100) * (255 - $b));
     
     return '#' . str_pad(dechex($r), 2, '0', STR_PAD_LEFT) . str_pad(dechex($g), 2, '0', STR_PAD_LEFT) . str_pad(dechex($b), 2, '0', STR_PAD_LEFT);
+}
+
+// Función auxiliar para oscurecer un color
+function ai_chat_pro_darken_color($hex, $percent) {
+    $hex = str_replace('#', '', $hex);
+    if (strlen($hex) == 3) {
+        $hex = str_repeat(substr($hex, 0, 1), 2) . str_repeat(substr($hex, 1, 1), 2) . str_repeat(substr($hex, 2, 1), 2);
+    }
+    
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    
+    $r = max(0, $r - ($percent / 100) * $r);
+    $g = max(0, $g - ($percent / 100) * $g);
+    $b = max(0, $b - ($percent / 100) * $b);
+    
+    return '#' . str_pad(dechex($r), 2, '0', STR_PAD_LEFT) . str_pad(dechex($g), 2, '0', STR_PAD_LEFT) . str_pad(dechex($b), 2, '0', STR_PAD_LEFT);
+}
+
+// Función para generar hash único basado en los colores
+function ai_chat_pro_get_colors_hash() {
+    $colors = array(
+        get_option('ai_chat_pro_primary_color', '#6a0dad'),
+        get_option('ai_chat_pro_bubble_color', '#6a0dad'),
+        get_option('ai_chat_pro_secondary_color', '#9370db'),
+        get_option('ai_chat_pro_accent_color', '#4b0082'),
+        get_option('ai_chat_pro_text_color', '#ffffff'),
+        get_option('ai_chat_pro_bg_color', '#ffffff'),
+        get_option('ai_chat_pro_messages_bg_color', '#f9f7fc'),
+        get_option('ai_chat_pro_user_bubble_color', '#9370db'),
+        get_option('ai_chat_pro_ai_bubble_color', '#e9e0f3'),
+        get_option('ai_chat_pro_ai_text_color', '#333333')
+    );
+    
+    return substr(md5(implode('', $colors)), 0, 8);
+}
+
+// Hook para limpiar cache automáticamente cuando se guardan los ajustes
+add_action('update_option', 'ai_chat_pro_clear_cache_on_color_change', 10, 3);
+function ai_chat_pro_clear_cache_on_color_change($option_name, $old_value, $new_value) {
+    // Lista de opciones de color que deben limpiar el cache
+    $color_options = array(
+        'ai_chat_pro_primary_color',
+        'ai_chat_pro_bubble_color',
+        'ai_chat_pro_secondary_color',
+        'ai_chat_pro_accent_color',
+        'ai_chat_pro_text_color',
+        'ai_chat_pro_bg_color',
+        'ai_chat_pro_messages_bg_color',
+        'ai_chat_pro_user_bubble_color',
+        'ai_chat_pro_ai_bubble_color',
+        'ai_chat_pro_ai_text_color'
+    );
+    
+    if (in_array($option_name, $color_options) && $old_value !== $new_value) {
+        ai_chat_pro_clear_wp_rocket_cache();
+    }
+}
+
+// Función para limpiar el cache de WP Rocket y otros plugins
+function ai_chat_pro_clear_wp_rocket_cache() {
+    // Limpiar cache de WP Rocket si está disponible
+    if (function_exists('rocket_clean_domain')) {
+        rocket_clean_domain();
+    }
+    
+    // Limpiar cache de WP Rocket (método alternativo)
+    if (function_exists('rocket_clean_files')) {
+        rocket_clean_files(array(
+            get_home_url()
+        ));
+    }
+    
+    // Limpiar cache de otros plugins populares
+    if (function_exists('wp_cache_clear_cache')) {
+        wp_cache_clear_cache();
+    }
+    
+    if (function_exists('w3tc_flush_all')) {
+        w3tc_flush_all();
+    }
+    
+    if (function_exists('wp_cache_flush')) {
+        wp_cache_flush();
+    }
+}
+
+// Añadir botón manual para limpiar cache en la página de ajustes
+add_action('admin_init', 'ai_chat_pro_add_clear_cache_button');
+function ai_chat_pro_add_clear_cache_button() {
+    if (isset($_POST['ai_chat_pro_clear_cache']) && current_user_can('manage_options')) {
+        check_admin_referer('ai_chat_pro_clear_cache_nonce');
+        ai_chat_pro_clear_wp_rocket_cache();
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-success is-dismissible"><p>' . __('Cache limpiado correctamente. Los cambios de colores deberían ser visibles ahora.', 'ai-chat-pro') . '</p></div>';
+        });
+    }
+}
+
+// Añadir el botón en la página de ajustes
+add_action('admin_footer', 'ai_chat_pro_add_cache_button_to_settings');
+function ai_chat_pro_add_cache_button_to_settings() {
+    $screen = get_current_screen();
+    if ($screen && $screen->id === 'settings_page_ai-chat-pro-settings') {
+        ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var form = document.querySelector('form[action="options.php"]');
+            if (form) {
+                var clearCacheForm = document.createElement('form');
+                clearCacheForm.method = 'post';
+                clearCacheForm.style.marginTop = '20px';
+                clearCacheForm.innerHTML = `
+                    <h3><?php echo esc_js(__('Gestión de Cache', 'ai-chat-pro')); ?></h3>
+                    <p><?php echo esc_js(__('Si has cambiado los colores y no se ven reflejados en el frontend, usa este botón para limpiar el cache.', 'ai-chat-pro')); ?></p>
+                    <?php wp_nonce_field('ai_chat_pro_clear_cache_nonce'); ?>
+                    <input type="hidden" name="ai_chat_pro_clear_cache" value="1">
+                    <button type="submit" class="button button-secondary" style="background-color: #ff6b35; color: white; border-color: #ff6b35;">
+                        <?php echo esc_js(__('🗑️ Limpiar Cache', 'ai-chat-pro')); ?>
+                    </button>
+                `;
+                form.parentNode.insertBefore(clearCacheForm, form.nextSibling);
+            }
+        });
+        </script>
+        <?php
+    }
+}
+
+// Nueva función para obtener configuración de apertura automática
+function ai_chat_pro_get_auto_open_config() {
+    return array(
+        'enabled' => (bool) get_option('ai_chat_pro_auto_open_enabled', false),
+        'pages_required' => (int) get_option('ai_chat_pro_auto_open_pages', 3),
+        'reset_daily' => (bool) get_option('ai_chat_pro_auto_open_reset_daily', true),
+        'exclude_reloads' => (bool) get_option('ai_chat_pro_auto_open_exclude_reloads', true),
+        'normalize_urls' => (bool) get_option('ai_chat_pro_auto_open_normalize_urls', true),
+        'session_timeout' => (int) get_option('ai_chat_pro_auto_open_session_timeout', 30), // minutos
+    );
+}
+
+// Nueva REST API endpoint para obtener configuración actualizada
+add_action('rest_api_init', function () {
+    register_rest_route('ai-chat-pro/v1', '/config', [
+        'methods' => 'GET',
+        'callback' => 'ai_chat_pro_get_config',
+        'permission_callback' => '__return_true',
+    ]);
+});
+
+function ai_chat_pro_get_config(WP_REST_Request $request) {
+    return new WP_REST_Response([
+        'auto_open_config' => ai_chat_pro_get_auto_open_config(),
+        'current_time' => current_time('timestamp'),
+        'timezone_offset' => get_option('gmt_offset') * HOUR_IN_SECONDS,
+    ], 200);
 }
 
 // Hook para cargar archivos de traducción

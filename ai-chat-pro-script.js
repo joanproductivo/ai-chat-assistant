@@ -26,6 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentThinkingMessageDiv = null;
     let isChatOpen = aiChatPro.start_opened;
     let unreadCount = 0;
+    let autoOpenTriggered = false;
+    let currentConfig = aiChatPro.auto_open_config || {};
 
     function updateUnreadBadge() {
         if (unreadBadge) {
@@ -234,8 +236,239 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Función mejorada para normalizar URLs
+    function normalizeUrl(url) {
+        try {
+            const urlObj = new URL(url);
+            
+            // Si la normalización está habilitada, remover parámetros de query y hash
+            if (currentConfig.normalize_urls) {
+                return urlObj.origin + urlObj.pathname;
+            }
+            
+            return url;
+        } catch (e) {
+            // Si la URL no es válida, devolver tal como está
+            return url;
+        }
+    }
+
+    // Función para obtener el timestamp del día actual
+    function getCurrentDayTimestamp() {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        return Math.floor(today.getTime() / 1000);
+    }
+
+    // Función para detectar si es una recarga de página
+    function isPageReload() {
+        // Verificar si la página se cargó desde cache del navegador
+        if (performance.navigation && performance.navigation.type === performance.navigation.TYPE_RELOAD) {
+            return true;
+        }
+        
+        // Verificar usando Performance API moderna
+        if (performance.getEntriesByType) {
+            const navEntries = performance.getEntriesByType('navigation');
+            if (navEntries.length > 0 && navEntries[0].type === 'reload') {
+                return true;
+            }
+        }
+        
+        // Verificar usando sessionStorage como fallback
+        const sessionKey = 'ai_chat_pro_page_loaded';
+        const currentUrl = window.location.href;
+        const lastLoadedUrl = sessionStorage.getItem(sessionKey);
+        
+        if (lastLoadedUrl === currentUrl) {
+            return true;
+        }
+        
+        sessionStorage.setItem(sessionKey, currentUrl);
+        return false;
+    }
+
+    // Función para actualizar configuración desde el servidor
+    async function updateConfigFromServer() {
+        try {
+            const response = await fetch(aiChatPro.rest_url_config, {
+                method: 'GET',
+                headers: {
+                    'X-WP-Nonce': aiChatPro.nonce
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                currentConfig = data.auto_open_config || currentConfig;
+                return true;
+            }
+        } catch (error) {
+            console.warn('AI Chat Pro: No se pudo actualizar la configuración desde el servidor:', error);
+        }
+        return false;
+    }
+
+    // Función mejorada para manejar el seguimiento de páginas visitadas y apertura automática
+    async function handleAutoOpenByPageViews() {
+        // Verificar si la función está habilitada
+        if (!currentConfig.enabled || autoOpenTriggered || isChatOpen) {
+            return;
+        }
+
+        // Intentar actualizar configuración desde el servidor (compatible con cache)
+        await updateConfigFromServer();
+
+        // Verificar nuevamente después de la actualización
+        if (!currentConfig.enabled) {
+            return;
+        }
+
+        const storageKey = 'ai_chat_pro_page_visits_v2'; // Versión 2 para nueva estructura
+        const currentUrl = normalizeUrl(window.location.href);
+        const currentTime = Math.floor(Date.now() / 1000);
+        const currentDay = getCurrentDayTimestamp();
+        
+        // Verificar si es una recarga de página y si debe excluirse
+        if (currentConfig.exclude_reloads && isPageReload()) {
+            return;
+        }
+        
+        // Obtener datos de visitas del localStorage
+        let visitData = JSON.parse(localStorage.getItem(storageKey)) || {
+            day: currentDay,
+            count: 0,
+            urls: [],
+            sessions: [],
+            lastVisit: currentTime
+        };
+
+        // Si es un nuevo día y el reset diario está habilitado, resetear el contador
+        if (currentConfig.reset_daily && visitData.day !== currentDay) {
+            visitData = {
+                day: currentDay,
+                count: 0,
+                urls: [],
+                sessions: [],
+                lastVisit: currentTime
+            };
+        }
+
+        // Verificar timeout de sesión
+        const sessionTimeoutSeconds = (currentConfig.session_timeout || 30) * 60;
+        const timeSinceLastVisit = currentTime - (visitData.lastVisit || 0);
+        
+        // Si ha pasado mucho tiempo, considerar como nueva sesión
+        if (timeSinceLastVisit > sessionTimeoutSeconds) {
+            visitData.sessions.push({
+                timestamp: currentTime,
+                urls: []
+            });
+            
+            // Mantener solo las últimas 10 sesiones
+            if (visitData.sessions.length > 10) {
+                visitData.sessions = visitData.sessions.slice(-10);
+            }
+        }
+
+        // Obtener la sesión actual
+        let currentSession = visitData.sessions[visitData.sessions.length - 1];
+        if (!currentSession) {
+            currentSession = {
+                timestamp: currentTime,
+                urls: []
+            };
+            visitData.sessions.push(currentSession);
+        }
+
+        // Solo contar si es una URL nueva en esta sesión
+        const urlAlreadyVisitedInSession = currentSession.urls.some(urlData => urlData.url === currentUrl);
+        
+        if (!urlAlreadyVisitedInSession) {
+            // Añadir URL a la sesión actual
+            currentSession.urls.push({
+                url: currentUrl,
+                timestamp: currentTime
+            });
+            
+            // Añadir a la lista global si no existe
+            if (!visitData.urls.some(urlData => urlData.url === currentUrl)) {
+                visitData.urls.push({
+                    url: currentUrl,
+                    firstVisit: currentTime,
+                    lastVisit: currentTime,
+                    count: 1
+                });
+            } else {
+                // Actualizar datos de la URL existente
+                const existingUrl = visitData.urls.find(urlData => urlData.url === currentUrl);
+                existingUrl.lastVisit = currentTime;
+                existingUrl.count++;
+            }
+            
+            visitData.count++;
+            visitData.lastVisit = currentTime;
+            
+            // Mantener solo las últimas 100 URLs para no sobrecargar el localStorage
+            if (visitData.urls.length > 100) {
+                visitData.urls = visitData.urls.slice(-100);
+            }
+            
+            // Mantener solo las últimas 50 URLs por sesión
+            if (currentSession.urls.length > 50) {
+                currentSession.urls = currentSession.urls.slice(-50);
+            }
+            
+            localStorage.setItem(storageKey, JSON.stringify(visitData));
+
+            // Verificar si se debe abrir el chat automáticamente
+            if (visitData.count >= currentConfig.pages_required) {
+                autoOpenTriggered = true;
+                
+                // Marcar que se activó la apertura automática para esta sesión
+                localStorage.setItem('ai_chat_pro_auto_opened', currentDay.toString());
+                
+                // Esperar un poco antes de abrir para que la página se cargue completamente
+                setTimeout(() => {
+                    if (!isChatOpen) {
+                        toggleChatWidget(true);
+                        
+                        // Opcional: añadir un mensaje especial indicando que se abrió automáticamente
+                        setTimeout(() => {
+                            if (chatMessagesContainer.children.length === 1) { // Solo el saludo inicial
+                                const autoOpenMessage = __('¡Hola! He notado que has visitado varias páginas. ¿Hay algo en lo que pueda ayudarte?', 'ai-chat-pro');
+                                appendMessage(autoOpenMessage, aiChatPro.ai_label);
+                                saveMessageToHistory(autoOpenMessage, aiChatPro.ai_label);
+                            }
+                        }, 500);
+                    }
+                }, 2000);
+            }
+        } else {
+            // Actualizar timestamp de última visita aunque no se cuente
+            visitData.lastVisit = currentTime;
+            localStorage.setItem(storageKey, JSON.stringify(visitData));
+        }
+    }
+
+    // Función para verificar si ya se activó la apertura automática hoy
+    function checkAutoOpenAlreadyTriggered() {
+        const currentDay = getCurrentDayTimestamp();
+        const lastAutoOpened = localStorage.getItem('ai_chat_pro_auto_opened');
+        
+        if (lastAutoOpened && parseInt(lastAutoOpened) === currentDay) {
+            autoOpenTriggered = true;
+        }
+    }
+
     // Cargar historial
     loadChatHistory();
+    
+    // Verificar si ya se activó la apertura automática hoy
+    checkAutoOpenAlreadyTriggered();
+    
+    // Inicializar seguimiento de páginas visitadas
+    handleAutoOpenByPageViews();
     
     // Detectar cambios en el viewport para ajustar el chat cuando aparece el teclado virtual
     let initialViewportHeight = window.innerHeight;

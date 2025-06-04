@@ -8,7 +8,9 @@
     --ai-chat-pro-border-radius: 8px;
     --ai-chat-pro-bubble-size: 60px;
 }
-
+#ai-chat-pro-widget-title{
+    color:    var(--ai-chat-pro-text-color);
+}
 /* Burbuja del chat */
 #ai-chat-pro-bubble {
     position: fixed;
