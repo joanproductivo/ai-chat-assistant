@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.8.3
+Version: 1.8.5
 Author: Joan Planas & IA
 */
 
@@ -686,25 +686,46 @@ function ai_chat_pro_field_color_cb($args) {
 function ai_chat_pro_colors_section_callback() {
     echo '<p>' . esc_html__('Personaliza los colores del chat. Los cambios se aplicarán inmediatamente en el frontend.', 'ai-chat-pro') . '</p>';
     echo '<p><strong>' . esc_html__('Vista previa:', 'ai-chat-pro') . '</strong> ' . esc_html__('Guarda los cambios para ver la vista previa actualizada en el frontend.', 'ai-chat-pro') . '</p>';
-    echo '<p><button type="button" onclick="resetAllColors()" style="background-color: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">' . __('Resetear Todos los Colores', 'ai-chat-pro') . '</button></p>';
+    echo '<p><button type="button" onclick="resetAllColors(aiChatProAdminColorDefaults)" style="background-color: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">' . __('Resetear Todos los Colores', 'ai-chat-pro') . '</button></p>';
     
+    // Get default colors for the reset function
+    $default_colors_for_js = [];
+    $color_option_keys = [
+        'ai_chat_pro_primary_color', 'ai_chat_pro_bubble_color', 'ai_chat_pro_secondary_color',
+        'ai_chat_pro_accent_color', 'ai_chat_pro_text_color', 'ai_chat_pro_bg_color',
+        'ai_chat_pro_messages_bg_color', 'ai_chat_pro_user_bubble_color', 'ai_chat_pro_ai_bubble_color',
+        'ai_chat_pro_ai_text_color'
+    ];
+    // Fetch registered defaults for these settings
+    global $wp_settings_fields;
+    $registered_settings = $wp_settings_fields['ai-chat-pro-settings']['ai_chat_pro_colors_section'] ?? [];
+
+    foreach ($color_option_keys as $key) {
+        // Fallback to hardcoded defaults if not found in registered settings (should not happen ideally)
+        $default_value = '#000000'; // A generic fallback
+        if (isset($registered_settings[$key]['args']['default'])) {
+            $default_value = $registered_settings[$key]['args']['default'];
+        } else {
+            // Fallback to the original hardcoded values if specific default isn't found
+            $original_defaults = [
+                'ai_chat_pro_primary_color' => '#6a0dad', 'ai_chat_pro_bubble_color' => '#6a0dad',
+                'ai_chat_pro_secondary_color' => '#9370db', 'ai_chat_pro_accent_color' => '#4b0082',
+                'ai_chat_pro_text_color' => '#ffffff', 'ai_chat_pro_bg_color' => '#ffffff',
+                'ai_chat_pro_messages_bg_color' => '#f9f7fc', 'ai_chat_pro_user_bubble_color' => '#9370db',
+                'ai_chat_pro_ai_bubble_color' => '#e9e0f3', 'ai_chat_pro_ai_text_color' => '#333333'
+            ];
+            if (isset($original_defaults[$key])) {
+                $default_value = $original_defaults[$key];
+            }
+        }
+        $default_colors_for_js[$key] = $default_value;
+    }
+
     echo '<script>
-    function resetAllColors() {
+    var aiChatProAdminColorDefaults = ' . json_encode($default_colors_for_js) . ';
+    function resetAllColors(defaults) {
         if (confirm("' . esc_js(__('¿Estás seguro de que quieres resetear todos los colores a los valores por defecto?', 'ai-chat-pro')) . '")) {
-            var colorDefaults = {
-                "ai_chat_pro_primary_color": "#6a0dad",
-                "ai_chat_pro_bubble_color": "#6a0dad",
-                "ai_chat_pro_secondary_color": "#9370db", 
-                "ai_chat_pro_accent_color": "#4b0082",
-                "ai_chat_pro_text_color": "#ffffff",
-                "ai_chat_pro_bg_color": "#ffffff",
-                "ai_chat_pro_messages_bg_color": "#f9f7fc",
-                "ai_chat_pro_user_bubble_color": "#9370db",
-                "ai_chat_pro_ai_bubble_color": "#e9e0f3",
-                "ai_chat_pro_ai_text_color": "#333333"
-            };
-            
-            for (var fieldName in colorDefaults) {
+            for (var fieldName in defaults) {
                 var colorInput = document.getElementById(fieldName);
                 var textInput = document.getElementById(fieldName + "_text");
                 if (colorInput && textInput) {
