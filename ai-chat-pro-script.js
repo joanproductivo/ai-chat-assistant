@@ -50,15 +50,16 @@ document.addEventListener("DOMContentLoaded", () => {
             chatWidget.setAttribute('aria-hidden', 'false');
             isChatOpen = true;
             unreadCount = 0;
-            
-            // En móvil, ajustar inmediatamente para el teclado
+            updateUnreadBadge(); // Update badge immediately on open
+
             if (window.innerWidth <= 768) {
+                // Delay focus slightly to allow CSS transitions and keyboard adjustments
                 setTimeout(() => {
-                    adjustChatForKeyboard(true);
-                    chatInput.focus();
-                }, 100);
+                    // adjustChatForKeyboard(true); // This will be triggered by focus event on chatInput
+                    chatInput.focus(); 
+                }, 150); // Slightly longer delay
             } else {
-                chatInput.focus();
+                setTimeout(() => chatInput.focus(), 50); // Minimal delay for desktop
             }
         } else {
             chatWidget.classList.remove("active");
@@ -131,12 +132,16 @@ document.addEventListener("DOMContentLoaded", () => {
         escapedText = escapedText.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
         
         // Envolver listas consecutivas en <ul>
-        escapedText = escapedText.replace(/(<li>.*<\/li>)/gs, function(match) {
-            return '<ul>' + match + '</ul>';
+        escapedText = escapedText.replace(/(<li>.*<\/li>)/gs, (match) => {
+            // Ensure each <li> is properly part of the match before wrapping in <ul>
+            // This regex is broad, so ensure it's what we want.
+            // If <li> items can be separated by <br>, this might wrap them separately.
+            // For simple, contiguous lists, it's okay.
+            return '<ul>' + match.replace(/<\/li>\s*<br\s*\/?>\s*<li>/g, '</li><li>') + '</ul>';
         });
         
-        // Limpiar <ul> anidados
-        escapedText = escapedText.replace(/<\/ul>\s*<ul>/g, '');
+        // Limpiar <ul> anidados o mal formados por el reemplazo anterior
+        escapedText = escapedText.replace(/<\/ul>\s*<ul>/g, ''); // Combines adjacent lists
         
         return escapedText;
     }
@@ -305,8 +310,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } catch (error) {
             console.warn('AI Chat Pro: No se pudo actualizar la configuración desde el servidor:', error);
+            return false; // Ensure false is returned on error
         }
-        return false;
+        return false; // Default return if response not ok or other issues
     }
 
     // Función mejorada para manejar el seguimiento de páginas visitadas y apertura automática
@@ -433,12 +439,26 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (!isChatOpen) {
                         toggleChatWidget(true);
                         
-                        // Opcional: añadir un mensaje especial indicando que se abrió automáticamente
+                        // Añadir mensaje de apertura automática si está configurado
                         setTimeout(() => {
-                            if (chatMessagesContainer.children.length === 1) { // Solo el saludo inicial
-                                const autoOpenMessage = __('¡Hola! He notado que has visitado varias páginas. ¿Hay algo en lo que pueda ayudarte?', 'ai-chat-pro');
-                                appendMessage(autoOpenMessage, aiChatPro.ai_label);
-                                saveMessageToHistory(autoOpenMessage, aiChatPro.ai_label);
+                            // Asegurarse de que el chat esté realmente abierto y no haya mensajes de error o límite excedido
+                            if (isChatOpen && chatMessagesContainer.children.length > 0) {
+                                const lastMessageElement = chatMessagesContainer.lastElementChild;
+                                // Solo añadir el mensaje automático si el último mensaje es el saludo inicial o no hay errores.
+                                // Esto evita añadir el mensaje si el usuario ya interactuó o si hay un error.
+                                const isInitialGreeting = lastMessageElement && lastMessageElement.textContent.includes(aiChatPro.initial_greeting);
+                                const noErrorOrLimit = !lastMessageElement || (!lastMessageElement.textContent.includes(aiChatPro.error_prefix) && !lastMessageElement.textContent.includes(aiChatPro.limit_exceeded));
+
+                                if (currentConfig.message_enabled && currentConfig.message_text && (isInitialGreeting || chatMessagesContainer.children.length === 1) && noErrorOrLimit) {
+                                    // Verificar si el mensaje automático ya fue enviado para evitar duplicados
+                                    let history = JSON.parse(localStorage.getItem("ai_chat_pro_history")) || [];
+                                    const autoMessageAlreadySent = history.some(item => item.text === currentConfig.message_text && item.sender === aiChatPro.ai_label);
+
+                                    if (!autoMessageAlreadySent) {
+                                        appendMessage(currentConfig.message_text, aiChatPro.ai_label);
+                                        saveMessageToHistory(currentConfig.message_text, aiChatPro.ai_label);
+                                    }
+                                }
                             }
                         }, 500);
                     }
@@ -469,6 +489,22 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Inicializar seguimiento de páginas visitadas
     handleAutoOpenByPageViews();
+
+    // Función para abrir el chat si la URL tiene el hash #abrirchat
+    function checkUrlHashForChatOpen() {
+        if (window.location.hash === "#abrirchat") {
+            // Esperar un poco para asegurar que todo esté cargado
+            setTimeout(() => {
+                if (!isChatOpen) {
+                    toggleChatWidget(true);
+                }
+            }, 500);
+        }
+    }
+    
+    // Comprobar al cargar la página y cuando cambie el hash
+    checkUrlHashForChatOpen(); 
+    window.addEventListener('hashchange', checkUrlHashForChatOpen, false);
     
     // Detectar cambios en el viewport para ajustar el chat cuando aparece el teclado virtual
     let initialViewportHeight = window.innerHeight;
