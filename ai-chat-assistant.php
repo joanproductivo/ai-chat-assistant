@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.5.9
+Version: 1.6.2
 Author: Joan Planas & IA
 */
 
@@ -82,6 +82,10 @@ function ai_chat_pro_enqueue_scripts() {
         $plugin_version,
         'all'
     );
+
+    // Añadir CSS personalizado con los colores configurados
+    $custom_css = ai_chat_pro_generate_custom_css();
+    wp_add_inline_style('ai-chat-pro-styles', $custom_css);
 
     // Registrar script externo en lugar de inline para mejor compatibilidad
     wp_enqueue_script(
@@ -446,6 +450,16 @@ function ai_chat_pro_register_all_settings() {
     register_setting($setting_group, 'ai_chat_pro_rate_limit_duration', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => HOUR_IN_SECONDS]);
     register_setting($setting_group, 'ai_chat_pro_excluded_pages', ['sanitize_callback' => 'sanitize_textarea_field', 'type' => 'string', 'default' => '']);
 
+    // Configuración de colores
+    register_setting($setting_group, 'ai_chat_pro_primary_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#6a0dad']);
+    register_setting($setting_group, 'ai_chat_pro_secondary_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#9370db']);
+    register_setting($setting_group, 'ai_chat_pro_accent_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#4b0082']);
+    register_setting($setting_group, 'ai_chat_pro_text_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#ffffff']);
+    register_setting($setting_group, 'ai_chat_pro_bg_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#ffffff']);
+    register_setting($setting_group, 'ai_chat_pro_messages_bg_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#f9f7fc']);
+    register_setting($setting_group, 'ai_chat_pro_user_bubble_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#9370db']);
+    register_setting($setting_group, 'ai_chat_pro_ai_bubble_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#e9e0f3']);
+    register_setting($setting_group, 'ai_chat_pro_ai_text_color', ['sanitize_callback' => 'sanitize_hex_color', 'type' => 'string', 'default' => '#333333']);
 
     // Sección de API y Asistente
     add_settings_section('ai_chat_pro_api_section', __('Configuración API y Asistente', 'ai-chat-pro'), null, $page_slug);
@@ -472,6 +486,18 @@ function ai_chat_pro_register_all_settings() {
     add_settings_field('ai_chat_pro_rate_limit_count', __('Límite de Solicitudes API (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_count', 'desc' => __('Número máximo de solicitudes a la API de OpenAI por IP dentro de la duración especificada. Es un límite a nivel de servidor.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_rate_limit_duration', __('Duración del Límite de Solicitudes (segundos)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_duration', 'desc' => __('Tiempo en segundos para el cual se aplica el límite de solicitudes. Por defecto: 3600 (1 hora).', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_excluded_pages', __('Páginas Excluidas', 'ai-chat-pro'), 'ai_chat_pro_field_textarea_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_excluded_pages', 'desc' => __('Lista de páginas donde NO mostrar el chat. Separa con comas. Puedes usar: IDs de página (ej: 123), slugs (ej: contacto), o rutas (ej: /tienda/checkout). Ejemplo: 123, contacto, /tienda/checkout', 'ai-chat-pro')]);
+
+    // Sección de Colores del Chat
+    add_settings_section('ai_chat_pro_colors_section', __('Colores del Chat', 'ai-chat-pro'), 'ai_chat_pro_colors_section_callback', $page_slug);
+    add_settings_field('ai_chat_pro_primary_color', __('Color Principal (Burbuja y Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_primary_color', 'default' => '#6a0dad', 'desc' => __('Color principal del chat, usado en la burbuja flotante y el header.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_secondary_color', __('Color Secundario (Mensajes Usuario)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_secondary_color', 'default' => '#9370db', 'desc' => __('Color de fondo de los mensajes del usuario.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_accent_color', __('Color de Acento (Hover y Enlaces)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_accent_color', 'default' => '#4b0082', 'desc' => __('Color usado para efectos hover y enlaces.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_text_color', __('Color de Texto (Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_text_color', 'default' => '#ffffff', 'desc' => __('Color del texto en el header del chat.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_bg_color', __('Color de Fondo (Widget)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_bg_color', 'default' => '#ffffff', 'desc' => __('Color de fondo del widget del chat.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_messages_bg_color', __('Color de Fondo (Área de Mensajes)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_messages_bg_color', 'default' => '#f9f7fc', 'desc' => __('Color de fondo del área donde aparecen los mensajes.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_user_bubble_color', __('Color Burbuja Usuario', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_user_bubble_color', 'default' => '#9370db', 'desc' => __('Color de fondo de las burbujas de mensajes del usuario.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_ai_bubble_color', __('Color Burbuja IA', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_ai_bubble_color', 'default' => '#e9e0f3', 'desc' => __('Color de fondo de las burbujas de mensajes de la IA.', 'ai-chat-pro')]);
+    add_settings_field('ai_chat_pro_ai_text_color', __('Color Texto IA', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_ai_text_color', 'default' => '#333333', 'desc' => __('Color del texto en los mensajes de la IA.', 'ai-chat-pro')]);
 
 }
 
@@ -515,6 +541,230 @@ function ai_chat_pro_field_checkbox_cb($args) {
     $value = get_option($option_name, $default_value);
     echo "<input type='checkbox' id='" . esc_attr($option_name) . "' name='" . esc_attr($option_name) . "' value='1'" . checked(1, $value, false) . " />";
     if (!empty($args['desc'])) echo "<p class='description'>" . esc_html($args['desc']) . "</p>";
+}
+
+// Callback para campos de color
+function ai_chat_pro_field_color_cb($args) {
+    $option_name = $args['id'];
+    $default_value = isset($args['default']) ? $args['default'] : '#000000';
+    
+    // Obtener el valor guardado, si no existe usar el valor por defecto
+    $saved_value = get_option($option_name);
+    if ($saved_value === false || $saved_value === '') {
+        $value = $default_value;
+    } else {
+        $value = $saved_value;
+    }
+    
+    echo "<input type='color' id='" . esc_attr($option_name) . "' name='" . esc_attr($option_name) . "' value='" . esc_attr($value) . "' style='width: 60px; height: 40px; border: none; cursor: pointer;' />";
+    echo "<input type='text' id='" . esc_attr($option_name) . "_text' value='" . esc_attr($value) . "' style='width: 100px; margin-left: 10px;' readonly />";
+    echo "<button type='button' onclick='resetColor(\"" . esc_js($option_name) . "\", \"" . esc_js($default_value) . "\")' style='margin-left: 5px; padding: 5px 10px; font-size: 12px;'>" . __('Reset', 'ai-chat-pro') . "</button>";
+    if (!empty($args['desc'])) echo "<p class='description'>" . esc_html($args['desc']) . "</p>";
+    
+    // JavaScript para sincronizar el color picker con el campo de texto y función de reset
+    echo "<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var colorInput = document.getElementById('" . esc_js($option_name) . "');
+        var textInput = document.getElementById('" . esc_js($option_name) . "_text');
+        if (colorInput && textInput) {
+            colorInput.addEventListener('input', function() {
+                textInput.value = this.value;
+            });
+        }
+    });
+    
+    function resetColor(fieldName, defaultValue) {
+        var colorInput = document.getElementById(fieldName);
+        var textInput = document.getElementById(fieldName + '_text');
+        if (colorInput && textInput) {
+            colorInput.value = defaultValue;
+            textInput.value = defaultValue;
+        }
+    }
+    </script>";
+}
+
+// Callback para la sección de colores
+function ai_chat_pro_colors_section_callback() {
+    echo '<p>' . esc_html__('Personaliza los colores del chat. Los cambios se aplicarán inmediatamente en el frontend.', 'ai-chat-pro') . '</p>';
+    echo '<p><strong>' . esc_html__('Vista previa:', 'ai-chat-pro') . '</strong> ' . esc_html__('Guarda los cambios para ver la vista previa actualizada en el frontend.', 'ai-chat-pro') . '</p>';
+    echo '<p><button type="button" onclick="resetAllColors()" style="background-color: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">' . __('Resetear Todos los Colores', 'ai-chat-pro') . '</button></p>';
+    
+    echo '<script>
+    function resetAllColors() {
+        if (confirm("' . esc_js(__('¿Estás seguro de que quieres resetear todos los colores a los valores por defecto?', 'ai-chat-pro')) . '")) {
+            var colorDefaults = {
+                "ai_chat_pro_primary_color": "#6a0dad",
+                "ai_chat_pro_secondary_color": "#9370db", 
+                "ai_chat_pro_accent_color": "#4b0082",
+                "ai_chat_pro_text_color": "#ffffff",
+                "ai_chat_pro_bg_color": "#ffffff",
+                "ai_chat_pro_messages_bg_color": "#f9f7fc",
+                "ai_chat_pro_user_bubble_color": "#9370db",
+                "ai_chat_pro_ai_bubble_color": "#e9e0f3",
+                "ai_chat_pro_ai_text_color": "#333333"
+            };
+            
+            for (var fieldName in colorDefaults) {
+                var colorInput = document.getElementById(fieldName);
+                var textInput = document.getElementById(fieldName + "_text");
+                if (colorInput && textInput) {
+                    colorInput.value = colorDefaults[fieldName];
+                    textInput.value = colorDefaults[fieldName];
+                }
+            }
+            
+            alert("' . esc_js(__('Todos los colores han sido reseteados. Recuerda guardar los cambios.', 'ai-chat-pro')) . '");
+        }
+    }
+    </script>';
+}
+
+// Función para generar CSS personalizado con los colores configurados
+function ai_chat_pro_generate_custom_css() {
+    // Obtener colores configurados o usar valores por defecto
+    $primary_color = get_option('ai_chat_pro_primary_color', '#6a0dad');
+    $secondary_color = get_option('ai_chat_pro_secondary_color', '#9370db');
+    $accent_color = get_option('ai_chat_pro_accent_color', '#4b0082');
+    $text_color = get_option('ai_chat_pro_text_color', '#ffffff');
+    $bg_color = get_option('ai_chat_pro_bg_color', '#ffffff');
+    $messages_bg_color = get_option('ai_chat_pro_messages_bg_color', '#f9f7fc');
+    $user_bubble_color = get_option('ai_chat_pro_user_bubble_color', '#9370db');
+    $ai_bubble_color = get_option('ai_chat_pro_ai_bubble_color', '#e9e0f3');
+    $ai_text_color = get_option('ai_chat_pro_ai_text_color', '#333333');
+
+    // Generar CSS personalizado
+    $custom_css = "
+    /* Colores personalizados del chat */
+    :root {
+        --ai-chat-pro-primary-color: {$primary_color} !important;
+        --ai-chat-pro-secondary-color: {$secondary_color} !important;
+        --ai-chat-pro-accent-color: {$accent_color} !important;
+        --ai-chat-pro-text-color: {$text_color} !important;
+        --ai-chat-pro-bg-color: {$bg_color} !important;
+    }
+
+    /* Burbuja flotante */
+    #ai-chat-pro-bubble {
+        background-color: {$primary_color} !important;
+    }
+    #ai-chat-pro-bubble:hover {
+        background-color: {$accent_color} !important;
+    }
+
+    /* Header del chat */
+    #ai-chat-pro-header {
+        background-color: {$primary_color} !important;
+        color: {$text_color} !important;
+    }
+
+    /* Título del widget */
+    #ai-chat-pro-widget-title {
+        color: {$text_color} !important;
+    }
+
+    /* Widget del chat */
+    #ai-chat-pro-widget {
+        background-color: {$bg_color} !important;
+    }
+
+    /* Área de mensajes */
+    #ai-chat-messages-pro {
+        background-color: {$messages_bg_color} !important;
+    }
+
+    /* Mensajes del usuario */
+    #ai-chat-messages-pro div.user-message .message-content {
+        background-color: {$user_bubble_color} !important;
+        color: white !important;
+    }
+
+    /* Mensajes de la IA */
+    #ai-chat-messages-pro div.ia-message .message-content {
+        background-color: {$ai_bubble_color} !important;
+        color: {$ai_text_color} !important;
+    }
+
+    #ai-chat-messages-pro div.ia-message strong {
+        color: {$accent_color} !important;
+    }
+
+    /* Enlaces en mensajes de IA */
+    #ai-chat-messages-pro div.ia-message .message-content a {
+        color: {$primary_color} !important;
+    }
+
+    #ai-chat-messages-pro div.ia-message .message-content a:hover {
+        color: {$accent_color} !important;
+    }
+
+    #ai-chat-messages-pro div.ia-message .message-content a:visited {
+        color: {$secondary_color} !important;
+    }
+
+    /* Elementos de formato en mensajes de IA */
+    #ai-chat-messages-pro div.ia-message .message-content em {
+        color: {$accent_color} !important;
+    }
+
+    #ai-chat-messages-pro div.ia-message .message-content span strong {
+        color: {$accent_color} !important;
+    }
+
+    /* Input del chat */
+    #ai-chat-input-pro:focus {
+        border-color: {$primary_color} !important;
+        box-shadow: 0 0 0 3px " . ai_chat_pro_hex_to_rgba($primary_color, 0.15) . " !important;
+    }
+
+    /* Botón de enviar */
+    #ai-chat-send-button-pro {
+        background-color: {$primary_color} !important;
+    }
+    #ai-chat-send-button-pro:hover {
+        background-color: {$accent_color} !important;
+    }
+
+    /* Scrollbar */
+    #ai-chat-messages-pro::-webkit-scrollbar-thumb {
+        background: " . ai_chat_pro_lighten_color($secondary_color, 20) . " !important;
+    }
+    #ai-chat-messages-pro::-webkit-scrollbar-thumb:hover {
+        background: {$secondary_color} !important;
+    }
+    ";
+
+    return $custom_css;
+}
+
+// Función auxiliar para convertir hex a rgba
+function ai_chat_pro_hex_to_rgba($hex, $alpha = 1) {
+    $hex = str_replace('#', '', $hex);
+    if (strlen($hex) == 3) {
+        $hex = str_repeat(substr($hex, 0, 1), 2) . str_repeat(substr($hex, 1, 1), 2) . str_repeat(substr($hex, 2, 1), 2);
+    }
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    return "rgba({$r}, {$g}, {$b}, {$alpha})";
+}
+
+// Función auxiliar para aclarar un color
+function ai_chat_pro_lighten_color($hex, $percent) {
+    $hex = str_replace('#', '', $hex);
+    if (strlen($hex) == 3) {
+        $hex = str_repeat(substr($hex, 0, 1), 2) . str_repeat(substr($hex, 1, 1), 2) . str_repeat(substr($hex, 2, 1), 2);
+    }
+    
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    
+    $r = min(255, $r + ($percent / 100) * (255 - $r));
+    $g = min(255, $g + ($percent / 100) * (255 - $g));
+    $b = min(255, $b + ($percent / 100) * (255 - $b));
+    
+    return '#' . str_pad(dechex($r), 2, '0', STR_PAD_LEFT) . str_pad(dechex($g), 2, '0', STR_PAD_LEFT) . str_pad(dechex($b), 2, '0', STR_PAD_LEFT);
 }
 
 // Hook para cargar archivos de traducción
