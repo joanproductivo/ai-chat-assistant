@@ -24,7 +24,7 @@
     align-items: center;
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 9998;
+    z-index: 10001;
     transition: transform 0.2s ease-in-out, background-color 0.2s ease;
 }
 #ai-chat-pro-bubble:hover {
@@ -68,7 +68,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    z-index: 9999;
+    z-index: 10000;
     visibility: hidden;
     opacity: 0;
     transform: translateY(20px) scale(0.95);
@@ -290,15 +290,15 @@
 @media (max-width: 768px) {
     #ai-chat-pro-widget {
         width: calc(100vw - 20px);
-        height: calc(100vh - 80px);
-        max-height: calc(100vh - 80px);
-        bottom: 70px; /* Dejar espacio para la burbuja */
+        height: calc(100vh - 100px);
+        max-height: calc(100vh - 100px);
+        bottom: 85px; /* Dejar espacio para la burbuja (60px + 15px margin + 10px extra) */
         right: 10px;
         left: 10px;
         margin: 0 auto;
         /* Usar viewport height que se ajusta al teclado */
-        height: calc(100svh - 80px);
-        max-height: calc(100svh - 80px);
+        height: calc(100svh - 100px);
+        max-height: calc(100svh - 100px);
     }
     
     #ai-chat-pro-bubble {
@@ -316,8 +316,8 @@
     
     /* Ajuste específico para cuando aparece el teclado virtual */
     #ai-chat-pro-widget.active {
-        height: calc(100svh - 80px);
-        max-height: calc(100svh - 80px);
+        height: calc(100svh - 100px);
+        max-height: calc(100svh - 100px);
         /* Posición fija para evitar que se mueva con el teclado */
         position: fixed;
         top: 10px;
@@ -339,7 +339,7 @@
     /* Ajustar el área de mensajes para que no se superponga con el input */
     #ai-chat-messages-pro {
         padding-bottom: 80px; /* Espacio para el input */
-        max-height: calc(100svh - 160px);
+        max-height: calc(100svh - 180px);
         overflow-y: auto;
     }
     

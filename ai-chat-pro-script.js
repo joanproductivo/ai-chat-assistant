@@ -67,6 +67,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (window.innerWidth <= 768) {
                 isKeyboardVisible = false;
                 adjustChatForKeyboard(false);
+                // Asegurar que la burbuja sea visible después de cerrar el chat
+                setTimeout(() => {
+                    ensureBubbleVisibility();
+                }, 100);
             }
         }
         updateUnreadBadge();
@@ -248,20 +252,30 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (heightDifference < 100 && isKeyboardVisible) {
             isKeyboardVisible = false;
             adjustChatForKeyboard(false);
+            // Asegurar que la burbuja sea visible después de ocultar el teclado
+            setTimeout(() => {
+                ensureBubbleVisibility();
+            }, 100);
         }
     }
     
     function adjustChatForKeyboard(keyboardVisible) {
         if (window.innerWidth <= 768) { // Solo en móvil
+            const bubbleHeight = 60; // Tamaño de la burbuja
+            const bubbleMargin = 15; // Margen inferior de la burbuja
+            const bubbleSpace = bubbleHeight + bubbleMargin + 10; // Espacio total necesario para la burbuja
+            
             if (keyboardVisible) {
                 const availableHeight = window.innerHeight;
-                chatWidget.style.height = `${availableHeight - 20}px`;
-                chatWidget.style.maxHeight = `${availableHeight - 20}px`;
+                const chatHeight = availableHeight - bubbleSpace - 20; // Dejar espacio para la burbuja
+                
+                chatWidget.style.height = `${chatHeight}px`;
+                chatWidget.style.maxHeight = `${chatHeight}px`;
                 chatWidget.style.top = '10px';
                 chatWidget.style.bottom = 'auto';
                 chatWidget.style.position = 'fixed';
                 chatMessagesContainer.style.paddingBottom = '90px';
-                chatMessagesContainer.style.maxHeight = `${availableHeight - 150}px`;
+                chatMessagesContainer.style.maxHeight = `${chatHeight - 150}px`;
                 
                 // Asegurar que el input area esté visible
                 const inputArea = document.getElementById('ai-chat-pro-input-area');
@@ -273,11 +287,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     inputArea.style.zIndex = '20';
                 }
             } else {
-                // Restaurar estilos originales
+                // Restaurar estilos originales pero manteniendo espacio para la burbuja
                 chatWidget.style.height = '';
                 chatWidget.style.maxHeight = '';
                 chatWidget.style.top = '';
-                chatWidget.style.bottom = '';
+                chatWidget.style.bottom = `${bubbleSpace}px`; // Mantener espacio para la burbuja
                 chatWidget.style.position = '';
                 chatMessagesContainer.style.paddingBottom = '';
                 chatMessagesContainer.style.maxHeight = '';
@@ -321,6 +335,8 @@ document.addEventListener("DOMContentLoaded", () => {
             initialViewportHeight = window.innerHeight;
             isKeyboardVisible = false;
             adjustChatForKeyboard(false);
+            // Asegurar que la burbuja sea visible después del cambio de orientación
+            ensureBubbleVisibility();
         }, 500);
     });
     
@@ -345,6 +361,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (isChatOpen) {
                     isKeyboardVisible = false;
                     adjustChatForKeyboard(false);
+                    // Asegurar que la burbuja sea visible después de ocultar el teclado
+                    setTimeout(() => {
+                        ensureBubbleVisibility();
+                    }, 100);
                 }
             }
         }, 300);

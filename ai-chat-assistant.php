@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.5.7
+Version: 1.5.9
 Author: Joan Planas & IA
 */
 
