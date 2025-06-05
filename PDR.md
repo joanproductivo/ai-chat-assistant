@@ -1,79 +1,198 @@
-Functions Documentation
+# AI Chat Assistant Pro Plugin Documentation
 
-1. __updateUnreadBadge()__
+## Overview
+This WordPress plugin implements a floating chat widget that integrates with OpenAI's API to provide AI-powered assistance. It includes:
+- Shortcode for embedding chat
+- REST API endpoints for message handling
+- Admin settings panel
+- Custom CSS generation
+- Rate limiting and caching mechanisms
 
-   - *Purpose:* Manages unread message badge visibility and content.
-   - *Functionality:* Updates the badge count and style based on unread messages and chat state.
+## Key Components
 
-2. __toggleChatWidget(forceOpen=null)__
+### 1. Shortcode Integration
+```php
+add_shortcode('ai_chat', 'ai_chat_pro_shortcode');
+```
+Registers the `[ai_chat]` shortcode which:
+- Enqueues necessary scripts/styles
+- Outputs empty string (actual UI is rendered via JS)
 
-   - *Purpose:* Controls chat widget visibility.
-   - *Functionality:* Toggles 'active' class, manages aria attributes, and adjusts UI for mobile keyboard visibility.
+### 2. Script/Style Enqueue
+```php
+add_action('wp_enqueue_scripts', 'ai_chat_pro_enqueue_scripts');
+```
+Key features:
+- Conditional display based on `ai_chat_pro_should_show_chat()`
+- Versioning with color hash: `1.9.92-{hash}`
+- Inline CSS generation via `ai_chat_pro_generate_custom_css()`
 
-3. __formatMessageText(text)__
+### 3. REST API Endpoints
+Two main endpoints:
+```php
+register_rest_route('ai-chat-pro/v1', '/message', ...) // POST
+register_rest_route('ai-chat-pro/v1', '/check', ...)     // POST
+```
 
-   - *Purpose:* Converts plain text to HTML with markdown-like formatting.
-   - *Functionality:* Handles bold, italic, code blocks, links, and lists. Escapes HTML entities.
+#### /message Endpoint
+Handles message transmission to OpenAI:
+- Creates/OpenAI thread if needed
+- Manages rate limiting (30 requests/hour by default)
+- Handles errors from OpenAI API
+- Returns run status and messages
 
-4. __appendMessage(text, sender, isThinking=false)__
+#### /check Endpoint
+Monitors message processing status:
+- Checks if OpenAI run is completed
+- Returns assistant's response when ready
 
-   - *Purpose:* Adds messages to the chat interface.
-   - *Functionality:* Creates message elements with appropriate styling for user/IA. Handles "thinking" indicators.
+### 4. Admin Settings
+Accessible via "Chat IA Pro" menu:
+- API configuration (OpenAI API key, assistant ID)
+- Chat appearance settings (colors, icons, labels)
+- Message limits (daily per IP)
+- Auto-open configuration
+- Excluded pages settings
 
-5. __removeThinkingMessage()__
+### 5. OpenAI Integration
+Uses OpenAI's Threads API:
+```php
+https://api.openai.com/v1/threads/{thread_id}/runs
+```
+Features:
+- Message persistence through threads
+- Error handling for rate limits
+- Retry logic for concurrent message issues
 
-   - *Purpose:* Removes the "thinking" message UI element.
-   - *Functionality:* Clears the temporary thinking indicator after a response is received.
+### 6. Custom CSS Generation
+Dynamically creates styles based on admin settings:
+```css
+:root {
+    --ai-chat-pro-primary-color: #6a0dad;
+    --ai-chat-pro-bubble-color: #6a0dad;
+    ...
+}
+```
 
-6. __loadChatHistory()__
+### 7. Caching & Performance
+- Unique versioning for assets
+- WP Rocket cache clearing on color changes
+- Session tracking for auto-open feature
 
-   - *Purpose:* Initializes chat with stored history.
-   - *Functionality:* Retrieves and displays messages from localStorage. Shows initial greeting if no history exists.
+## JavaScript Functions
 
-7. __saveMessageToHistory(text, sender)__
+### 1. `toggleChatWidget([forceOpen])`
+- **Description**: Opens or closes the chat widget.
+- **Parameters**:
+  - `forceOpen` (boolean): Optional parameter to force open/close.
+- **Behavior**:
+  - Toggles widget visibility
+  - Updates aria attributes
+  - Manages keyboard focus
 
-   - *Purpose:* Persists chat messages to localStorage.
-   - *Functionality:* Maintains history limit and avoids duplicate "thinking" messages.
+### 2. `formatMessageText(text)`
+- **Description**: Formats text messages with HTML elements.
+- **Features**:
+  - Converts markdown-style formatting to HTML
+  - Handles links, bold text, italics, code blocks
+  - Sanitizes input to prevent XSS
 
-8. __isThinkingMessage(text)__
+### 3. `appendMessage(text, sender, isThinking)`
+- **Description**: Appends a message to the chat interface.
+- **Parameters**:
+  - `text` (string): Message content
+  - `sender` (string): "user" or "assistant"
+  - `isThinking` (boolean): Indicates if it's a "thinking" message
+- **Behavior**:
+  - Creates and appends message elements
+  - Handles scroll behavior
+  - Updates unread message count
 
-   - *Purpose:* Identifies "thinking" messages.
-   - *Functionality:* Checks against configured thinking message strings.
+### 4. `removeThinkingMessage()`
+- **Description**: Removes the "thinking" message.
+- **Behavior**:
+  - Clears the temporary thinking indicator
+  - Maintains chat history integrity
 
-9. __ensureBubbleVisibility()__
+### 5. `loadChatHistory()`
+- **Description**: Loads chat history from localStorage.
+- **Features**:
+  - Restores previous conversation
+  - Handles edge cases with empty history
 
-   - *Purpose:* Ensures chat bubble visibility on mobile.
-   - *Functionality:* Adjusts positioning and styles for fixed viewport.
+### 6. `saveMessageToHistory(text, sender)`
+- **Description**: Saves messages to localStorage.
+- **Features**:
+  - Maintains conversation history
+  - Limits history size to prevent overflow
 
-10. __handleViewportChange() / adjustChatForKeyboard()__
+### 7. `isThinkingMessage(text)`
+- **Description**: Checks if a message is a "thinking" indicator.
+- **Returns**: Boolean indicating if message is a thinking indicator
 
-    - *Purpose:* Manages chat positioning when mobile keyboard is shown.
-    - *Functionality:* Adjusts container heights and positions based on viewport changes.
+### 8. `ensureBubbleVisibility()`
+- **Description**: Ensures the chat bubble is visible.
+- **Features**:
+  - Adjusts positioning for mobile
+  - Handles keyboard visibility
 
-11. __setSendingState(isSending)__
+### 9. `normalizeUrl(url)`
+- **Description**: Normalizes URLs for tracking.
+- **Features**:
+  - Removes query parameters and hashes
+  - Handles invalid URLs
 
-    - *Purpose:* Manages send button state during message processing.
-    - *Functionality:* Disables input and shows "sending" indicator.
+### 10. `handleAutoOpenByPageViews()`
+- **Description**: Manages auto-open feature based on page views.
+- **Features**:
+  - Tracks visited pages
+  - Handles session timeouts
+  - Shows auto-open message
 
-12. __sendMessagePro()__
+### 11. `sendMessagePro()`
+- **Description**: Handles sending messages to the server.
+- **Features**:
+  - Validates input
+  - Manages message sending state
+  - Handles rate limiting
+  - Polls for responses
 
-    - *Purpose:* Handles user message sending and response handling.
-    - *Functionality:* Validates input, manages history, and sends messages to WordPress REST API.
+### 12. `pollForResponse(thread_id, run_id)`
+- **Description**: Polls the server for response completion.
+- **Features**:
+  - Handles run status checks
+  - Displays responses when ready
+  - Manages error cases
 
-13. __pollForResponse(thread_id, run_id)__
+## Configuration Options
 
-    - *Purpose:* Monitors server for AI response completion.
-    - *Functionality:* Polls status endpoint, handles timeouts, and updates UI with responses.
+| Setting Name                | Purpose |
+|---------------------------|---------|
+| `ai_chat_pro_api_key`     | OpenAI API key |
+| `ai_chat_pro_assistant_id`| OpenAI assistant ID |
+| `ai_chat_pro_primary_color` | Main UI color |
+| `ai_chat_pro_message_limit` | Daily message limit per user |
+| `ai_chat_pro_rate_limit_count` | API request rate limit |
+| `ai_chat_pro_excluded_pages` | Pages where chat should not appear |
 
-__Key Interactions:__
+## Auto-Open Feature
+- Triggers after visiting X pages
+- Configurable via admin settings
+- Tracks sessions with timeout
+- Optionally shows custom message
 
-- Uses `localStorage` for chat history persistence
+## Error Handling
+- Rate limit notifications
+- API connection errors
+- Message sending failures
+- OpenAI run status monitoring
 
-- Communicates with WordPress REST API via:
+## File Structure
+```
+ai-chat-assistant.php        - Main plugin file
+ai-chat-pro-styles.css       - Generated styles
+ai-chat-pro-script.js        - Frontend logic
+PDR.md                       - This document
+```
 
-  - `aiChatPro.rest_url_message` (message sending)
-  - `aiChatPro.rest_url_check` (response polling)
-
-- Handles mobile keyboard positioning
-
-- Implements message history limit and daily counter
+This documentation provides a comprehensive overview of the plugin's architecture and functionality for future maintenance and development.
