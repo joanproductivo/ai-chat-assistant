@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.9.8
+Version: 1.9.9
 Author: Joan Planas & IA
 */
 
@@ -103,7 +103,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.9.8-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.9.9-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(
@@ -141,6 +141,7 @@ function ai_chat_pro_enqueue_scripts() {
         'thinking'         => __('Está escribiendo...', 'ai-chat-pro'),
         'error_prefix'     => __('', 'ai-chat-pro'),
         'send_button_text' => get_option('ai_chat_pro_send_button_text', __('Enviar', 'ai-chat-pro')),
+        'sending_button_text' => get_option('ai_chat_pro_sending_button_text', __('Enviando...', 'ai-chat-pro')),
         'input_placeholder'=> get_option('ai_chat_pro_input_placeholder', __('Escribe tu mensaje...', 'ai-chat-pro')),
         'chat_title'       => get_option('ai_chat_pro_chat_title', __('Ayudante', 'ai-chat-pro')),
         'bubble_svg_icon'  => get_option('ai_chat_pro_bubble_icon_svg', '<svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>'),
@@ -478,6 +479,7 @@ function ai_chat_pro_register_all_settings() {
     register_setting($setting_group, 'ai_chat_pro_initial_greeting', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('¡Hola! ¿En qué puedo ayudarte hoy?', 'ai-chat-pro')]);
     register_setting($setting_group, 'ai_chat_pro_input_placeholder', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Escribe tu mensaje...', 'ai-chat-pro')]);
     register_setting($setting_group, 'ai_chat_pro_send_button_text', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Enviar', 'ai-chat-pro')]);
+    register_setting($setting_group, 'ai_chat_pro_sending_button_text', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Enviando...', 'ai-chat-pro')]);
     register_setting($setting_group, 'ai_chat_pro_bubble_icon_svg', ['sanitize_callback' => 'ai_chat_pro_sanitize_svg_field', 'type' => 'string', 'default' => '<svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>']);
     register_setting($setting_group, 'ai_chat_pro_message_limit', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 10]);
     register_setting($setting_group, 'ai_chat_pro_limit_exceeded', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Has alcanzado el límite de mensajes de hoy. Vuelve mañana. Gracias.', 'ai-chat-pro')]);
@@ -524,6 +526,7 @@ function ai_chat_pro_register_all_settings() {
     add_settings_field('ai_chat_pro_initial_greeting', __('Mensaje de Saludo Inicial', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_initial_greeting', 'width' => '500px']);
     add_settings_field('ai_chat_pro_input_placeholder', __('Placeholder del Input', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_input_placeholder']);
     add_settings_field('ai_chat_pro_send_button_text', __('Texto Botón Enviar', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_send_button_text', 'width' => '150px']);
+    add_settings_field('ai_chat_pro_sending_button_text', __('Texto Botón Enviando', 'ai-chat-pro'), 'ai_chat_pro_field_text_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_sending_button_text', 'width' => '150px', 'desc' => __('Texto que aparece en el botón mientras se está enviando el mensaje.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_bubble_icon_svg', __('SVG del Icono de la Burbuja', 'ai-chat-pro'), 'ai_chat_pro_field_textarea_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_bubble_icon_svg', 'desc' => __('Pega aquí el código SVG completo para el icono de la burbuja. Asegúrate de que sea un SVG válido y que el `viewBox` y `path` sean correctos. El tamaño se ajustará por CSS.', 'ai-chat-pro'), 'rows' => 5, 'width' => '500px']);
     
     add_settings_field('ai_chat_pro_start_opened', __('Abrir Chat al Cargar Página', 'ai-chat-pro'), 'ai_chat_pro_field_checkbox_cb', $page_slug, 'ai_chat_pro_customization_section', ['id' => 'ai_chat_pro_start_opened', 'desc' => __('Si se marca, el chat flotante aparecerá abierto.', 'ai-chat-pro')]);
