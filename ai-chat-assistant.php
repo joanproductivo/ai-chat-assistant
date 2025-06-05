@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.9.91
+Version: 1.9.92
 Author: Joan Planas & IA
 */
 
@@ -103,7 +103,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.9.91-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.9.92-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(

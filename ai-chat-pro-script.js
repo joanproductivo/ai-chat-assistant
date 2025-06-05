@@ -676,6 +676,10 @@ document.addEventListener("DOMContentLoaded", () => {
             sendButton.textContent = aiChatPro.sending_button_text;
         } else {
             sendButton.textContent = aiChatPro.send_button_text;
+            // Refocus on desktop after sending
+            if (window.innerWidth > 768) {
+                chatInput.focus();
+            }
         }
     }
 
