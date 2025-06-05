@@ -20,6 +20,15 @@ document.addEventListener("DOMContentLoaded", () => {
     widgetTitle.textContent = aiChatPro.chat_title;
     chatInput.placeholder = aiChatPro.input_placeholder;
     sendButton.textContent = aiChatPro.send_button_text;
+    
+    // Set dynamic aria-label for chat input
+    // aiChatPro.type_message_label is expected to be a format string like "Mensaje para %s"
+    // aiChatPro.ai_label is the name of the AI assistant
+    const inputAriaLabel = aiChatPro.type_message_label.includes('%s') 
+        ? aiChatPro.type_message_label.replace('%s', aiChatPro.ai_label) 
+        : aiChatPro.type_message_label; // Fallback if not a format string
+    chatInput.setAttribute('aria-label', inputAriaLabel);
+
     chatBubble.setAttribute('aria-label', __('Abrir chat con ', 'ai-chat-pro') + aiChatPro.chat_title);
     closeButton.setAttribute('aria-label', __('Cerrar chat con ', 'ai-chat-pro') + aiChatPro.chat_title);
 
@@ -101,6 +110,17 @@ document.addEventListener("DOMContentLoaded", () => {
         div.textContent = text;
         let escapedText = div.innerHTML;
         
+        // IMPORTANTE: Convertir [texto](url) a enlaces ANTES que las URLs simples
+        // para evitar conflictos de procesamiento
+        escapedText = escapedText.replace(
+            /\[([^\]]+)\]\(((?:https?:\/\/)?[^\s<>"'\)]+)\)/gi,
+            function(match, text, url) {
+                // Si la URL no tiene protocolo, añadir https://
+                const fullUrl = url.startsWith('http') ? url : 'https://' + url;
+                return '<a href="' + fullUrl + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+            }
+        );
+        
         // Convertir saltos de línea a <br>
         escapedText = escapedText.replace(/\n/g, '<br>');
         
@@ -116,16 +136,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Convertir ```bloque de código``` a <pre><code>bloque de código</code></pre>
         escapedText = escapedText.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
         
-        // Convertir URLs a enlaces clicables (protocolo requerido)
+        // Convertir URLs simples a enlaces clicables (protocolo requerido)
+        // NOTA: Esto va después de los enlaces markdown para no interferir
         escapedText = escapedText.replace(
-            /(https?:\/\/[^\s<>"']+)/gi,
-            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-        );
-        
-        // Convertir [texto](url) a enlaces
-        escapedText = escapedText.replace(
-            /\[([^\]]+)\]\((https?:\/\/[^\s<>"']+)\)/gi,
-            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+            /(^|[^"'>])(https?:\/\/[^\s<>"']+)(?![^<]*<\/a>)/gi,
+            '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>'
         );
         
         // Convertir listas con - o * al inicio de línea
@@ -173,7 +188,22 @@ document.addEventListener("DOMContentLoaded", () => {
         
         wrapper.appendChild(contentDiv);
         chatMessagesContainer.appendChild(wrapper);
-        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+        
+        // Mejorar el comportamiento del scroll para mensajes largos
+        if (sender === aiChatPro.ai_label && !isThinking) {
+            // para mensajes de la IA, hacer scroll al inicio del mensaje
+            // para que el usuario pueda leer desde el principio
+            setTimeout(() => {
+                wrapper.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'start',
+                    inline: 'nearest'
+                });
+            }, 100);
+        } else {
+            // Comportamiento normal: scroll al final
+            chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+        }
 
         if (isThinking) {
             currentThinkingMessageDiv = wrapper;
@@ -544,7 +574,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 chatWidget.style.bottom = 'auto';
                 chatWidget.style.position = 'fixed';
                 chatMessagesContainer.style.paddingBottom = '90px';
-                chatMessagesContainer.style.maxHeight = `${chatHeight - 150}px`;
                 
                 // Asegurar que el input area esté visible
                 const inputArea = document.getElementById('ai-chat-pro-input-area');
@@ -644,7 +673,7 @@ document.addEventListener("DOMContentLoaded", () => {
         chatInput.disabled = isSending;
         sendButton.disabled = isSending;
         if (isSending) {
-            sendButton.textContent = __('Enviando...', 'ai-chat-pro');
+            sendButton.textContent = __('Enviando', 'ai-chat-pro');
         } else {
             sendButton.textContent = aiChatPro.send_button_text;
         }

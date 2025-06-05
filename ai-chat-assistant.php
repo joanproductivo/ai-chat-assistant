@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.8.5
+Version: 1.9.8
 Author: Joan Planas & IA
 */
 
@@ -76,18 +76,19 @@ function ai_chat_pro_should_show_chat() {
 function ai_chat_pro_get_all_color_options() {
     static $colors = null;
     if ($colors === null) {
-        $colors = [
-            'primary_color'       => get_option('ai_chat_pro_primary_color', '#6a0dad'),
-            'bubble_color'        => get_option('ai_chat_pro_bubble_color', '#6a0dad'),
-            'secondary_color'     => get_option('ai_chat_pro_secondary_color', '#9370db'),
-            'accent_color'        => get_option('ai_chat_pro_accent_color', '#4b0082'),
-            'text_color'          => get_option('ai_chat_pro_text_color', '#ffffff'),
-            'bg_color'            => get_option('ai_chat_pro_bg_color', '#ffffff'),
-            'messages_bg_color'   => get_option('ai_chat_pro_messages_bg_color', '#f9f7fc'),
-            'user_bubble_color'   => get_option('ai_chat_pro_user_bubble_color', '#9370db'),
-            'ai_bubble_color'     => get_option('ai_chat_pro_ai_bubble_color', '#e9e0f3'),
-            'ai_text_color'       => get_option('ai_chat_pro_ai_text_color', '#333333'),
+        // Defaults are handled by register_setting and get_option's second parameter.
+        // This function now primarily serves as a convenient way to get all color options at once.
+        $color_keys = [
+            'primary_color', 'bubble_color', 'secondary_color', 'accent_color',
+            'text_color', 'bg_color', 'messages_bg_color', 'user_bubble_color',
+            'ai_bubble_color', 'ai_text_color'
         ];
+        $colors = [];
+        foreach ($color_keys as $key) {
+            // The default value for each option is defined in ai_chat_pro_register_all_settings
+            // get_option will use that registered default if the option isn't set.
+            $colors[$key] = get_option('ai_chat_pro_' . $key);
+        }
     }
     return $colors;
 }
@@ -102,7 +103,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.8.5-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.9.8-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(
@@ -149,7 +150,7 @@ function ai_chat_pro_enqueue_scripts() {
         'user_label'       => __('Tú', 'ai-chat-pro'),
         'ai_label'         => get_option('ai_chat_pro_ai_name', __('Ayudante', 'ai-chat-pro')), // <-- CAMBIO AQUÍ
         'close_chat_label' => __('Cerrar chat', 'ai-chat-pro'),
-        'type_message_label' => __('Mensaje para Ayudante', 'ai-chat-pro'), // Podrías querer actualizar esto dinámicamente si 'ai_label' cambia mucho.
+        'type_message_label' => __('Mensaje para %s', 'ai-chat-pro'), // Updated for sprintf, %s will be replaced by ai_label in JS
         'thinking_saved_text' => __('Está escribiendo... (refreshed)', 'ai-chat-pro'),
         'auto_open_config' => ai_chat_pro_get_auto_open_config(),
         'site_url'         => home_url(),
@@ -607,13 +608,10 @@ function ai_chat_pro_field_textarea_cb($args) {
 function ai_chat_pro_field_text_cb($args) {
     $option_name = $args['id'];
     $default_value = isset($args['default']) ? $args['default'] : '';
+    $option_name = $args['id'];
+    $default_value = $args['default'] ?? ''; // Default from register_setting will be used by get_option
     $value = get_option($option_name, $default_value);
     $width = $args['width'] ?? '400px';
-    
-    // Si el valor es el default de una cadena traducible y no hay valor guardado, mostrar el default traducido.
-    if (empty(get_option($option_name)) && is_string($default_value) && $default_value === __($default_value, 'ai-chat-pro')) {
-         $value = __($default_value, 'ai-chat-pro');
-    }
 
     echo "<input type='text' id='" . esc_attr($option_name) . "' name='" . esc_attr($option_name) . "' value='" . esc_attr($value) . "' style='width: {$width};' />";
     if (!empty($args['desc'])) echo "<p class='description'>" . esc_html($args['desc']) . "</p>";
@@ -728,9 +726,9 @@ function ai_chat_pro_colors_section_callback() {
             for (var fieldName in defaults) {
                 var colorInput = document.getElementById(fieldName);
                 var textInput = document.getElementById(fieldName + "_text");
-                if (colorInput && textInput) {
-                    colorInput.value = colorDefaults[fieldName];
-                    textInput.value = colorDefaults[fieldName];
+                if (colorInput && textInput && defaults.hasOwnProperty(fieldName)) {
+                    colorInput.value = defaults[fieldName];
+                    textInput.value = defaults[fieldName];
                 }
             }
             

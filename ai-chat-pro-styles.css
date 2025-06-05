@@ -234,6 +234,15 @@
     font-style: italic;
     color: #666;
     background-color: #f0f0f0;
+    animation: blink 1.5s infinite ease-in-out;
+    }
+    @keyframes blink {
+  0%, 100% {
+    opacity: 1; /* Comienza y termina completamente visible */
+  }
+  50% {
+    opacity: 0; /* En el medio, se vuelve invisible */
+  }
 }
 
 /* Área de input */
