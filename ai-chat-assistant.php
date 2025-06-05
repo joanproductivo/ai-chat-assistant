@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.9.9
+Version: 1.9.91
 Author: Joan Planas & IA
 */
 
@@ -103,7 +103,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.9.9-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.9.91-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(
@@ -287,28 +287,145 @@ function ai_chat_pro_handle_message(WP_REST_Request $request) {
         $thread_id = $body['id'];
     }
 
-    // 2. Añadir Mensaje al Thread
+    // 2. Añadir Mensaje al Thread (con lógica de reintento para run activo)
     $message_payload = ['role' => 'user', 'content' => $message_content];
-    $add_message_resp = wp_remote_post("https://api.openai.com/v1/threads/{$thread_id}/messages", [
-        'method' => 'POST', 
-        'headers' => $headers, 
-        'body' => json_encode($message_payload),
-        'timeout' => 30
-    ]);
-    
-    if (is_wp_error($add_message_resp)) {
-        error_log("AI Chat Pro - Error añadiendo mensaje: " . $add_message_resp->get_error_message());
-        return new WP_REST_Response(['message' => __('Error al conectar con OpenAI (enviar mensaje).', 'ai-chat-pro')], 503);
-    }
-    
-    $status_code_msg = wp_remote_retrieve_response_code($add_message_resp);
-    $body_msg = json_decode(wp_remote_retrieve_body($add_message_resp), true);
-    
-    if ($status_code_msg >= 400) {
-        $api_error = isset($body_msg['error']['message']) ? $body_msg['error']['message'] : wp_remote_retrieve_body($add_message_resp);
-        error_log("AI Chat Pro - Error API añadiendo mensaje ($status_code_msg): " . $api_error);
-        return new WP_REST_Response(['message' => sprintf(__('Error de API OpenAI (enviar mensaje): %s', 'ai-chat-pro'), $api_error)], $status_code_msg);
-    }
+    $add_message_attempt = 0;
+    $max_add_message_attempts = 2; // Intento original + 1 reintento
+
+    while ($add_message_attempt < $max_add_message_attempts) {
+        $add_message_attempt++;
+        
+        $add_message_resp = wp_remote_post("https://api.openai.com/v1/threads/{$thread_id}/messages", [
+            'method' => 'POST',
+            'headers' => $headers,
+            'body' => json_encode($message_payload),
+            'timeout' => 30
+        ]);
+
+        if (is_wp_error($add_message_resp)) {
+            error_log("AI Chat Pro - Error añadiendo mensaje (intento {$add_message_attempt}): " . $add_message_resp->get_error_message());
+            if ($add_message_attempt >= $max_add_message_attempts) {
+                return new WP_REST_Response(['message' => __('Error al conectar con OpenAI (enviar mensaje).', 'ai-chat-pro')], 503);
+            }
+            // Podríamos añadir un pequeño sleep aquí si fuera un error de red transitorio, pero para este caso, el reintento es por error específico de API.
+            sleep(1); // Pequeña pausa antes de reintentar por si es un error de WP
+            continue;
+        }
+
+        $status_code_msg = wp_remote_retrieve_response_code($add_message_resp);
+        $body_msg = json_decode(wp_remote_retrieve_body($add_message_resp), true);
+        $api_error_detail = isset($body_msg['error']['message']) ? $body_msg['error']['message'] : '';
+
+        if ($status_code_msg < 400) {
+            // Mensaje añadido con éxito
+            break;
+        }
+
+        // Detectar el error específico: "Can't add messages to thread_... while a run run_... is active."
+        if ($status_code_msg >= 400 && 
+            strpos($api_error_detail, "Can't add messages to thread") !== false &&
+            strpos($api_error_detail, "while a run") !== false &&
+            strpos($api_error_detail, "is active") !== false) {
+
+            if ($add_message_attempt >= $max_add_message_attempts) {
+                error_log("AI Chat Pro - Error API añadiendo mensaje tras reintento por run activo ($status_code_msg): " . $api_error_detail);
+                return new WP_REST_Response(['message' => sprintf(__('Error de API OpenAI (enviar mensaje tras reintento por run activo): %s', 'ai-chat-pro'), $api_error_detail)], $status_code_msg);
+            }
+
+            preg_match('/while a run (run_[a-zA-Z0-9]+) is active/', $api_error_detail, $matches);
+            if (isset($matches[1])) {
+                $conflicting_run_id = $matches[1];
+                error_log("AI Chat Pro - Run conflictivo detectado: {$conflicting_run_id}. Intentando cancelar y reintentar.");
+
+                // 3. Cancelar el run conflictivo
+                $cancel_resp = wp_remote_post("https://api.openai.com/v1/threads/{$thread_id}/runs/{$conflicting_run_id}/cancel", [
+                    'method' => 'POST',
+                    'headers' => $headers,
+                    'timeout' => 30
+                ]);
+
+                if (is_wp_error($cancel_resp)) {
+                    error_log("AI Chat Pro - Error WP cancelando run {$conflicting_run_id}: " . $cancel_resp->get_error_message());
+                    // No se pudo enviar la solicitud de cancelación, reintentar añadir mensaje directamente.
+                } else {
+                    $cancel_status_code = wp_remote_retrieve_response_code($cancel_resp);
+                    $cancel_body = json_decode(wp_remote_retrieve_body($cancel_resp), true);
+                    $cancel_api_error = isset($cancel_body['error']['message']) ? $cancel_body['error']['message'] : '';
+
+                    if ($cancel_status_code >= 400) {
+                        // Un error 400 aquí puede significar que el run ya está en estado terminal (completado, cancelado, etc.)
+                        // Lo cual es bueno para nuestro propósito.
+                        error_log("AI Chat Pro - Respuesta API al cancelar run {$conflicting_run_id} ($cancel_status_code): " . $cancel_api_error);
+                    } else {
+                        error_log("AI Chat Pro - Solicitud de cancelación para run {$conflicting_run_id} enviada. Status: {$cancel_status_code}");
+                    }
+                }
+                
+                // 4. Esperar a que el run cambie a estado terminal (cancelled, completed, failed, expired)
+                $polling_attempts = 0;
+                $max_polling_attempts = 10; // Max 10 intentos (aprox 20 segundos con sleep de 2s)
+                $run_is_terminal = false;
+
+                for ($polling_attempts = 0; $polling_attempts < $max_polling_attempts; $polling_attempts++) {
+                    sleep(2); // Esperar 2 segundos
+
+                    $run_status_resp = wp_remote_get("https://api.openai.com/v1/threads/{$thread_id}/runs/{$conflicting_run_id}", [
+                        'headers' => $headers,
+                        'timeout' => 30
+                    ]);
+
+                    if (is_wp_error($run_status_resp)) {
+                        error_log("AI Chat Pro - Error WP consultando estado de run {$conflicting_run_id} durante sondeo: " . $run_status_resp->get_error_message());
+                        break; // Salir del sondeo, se reintentará añadir mensaje
+                    }
+
+                    $run_status_code = wp_remote_retrieve_response_code($run_status_resp);
+                    $run_status_body = json_decode(wp_remote_retrieve_body($run_status_resp), true);
+
+                    if ($run_status_code >= 400) {
+                        $run_status_api_error = isset($run_status_body['error']['message']) ? $run_status_body['error']['message'] : wp_remote_retrieve_body($run_status_resp);
+                        error_log("AI Chat Pro - Error API consultando estado de run {$conflicting_run_id} ($run_status_code): " . $run_status_api_error);
+                        if ($run_status_code === 404) { // Run no encontrado, probablemente ya no existe.
+                            $run_is_terminal = true;
+                        }
+                        break; // Salir del sondeo
+                    }
+                    
+                    $current_run_status = isset($run_status_body['status']) ? $run_status_body['status'] : '';
+                    error_log("AI Chat Pro - Sondeo run {$conflicting_run_id} (intento " . ($polling_attempts + 1) . "): status {$current_run_status}");
+                    if (in_array($current_run_status, ['cancelled', 'completed', 'failed', 'expired'])) {
+                        $run_is_terminal = true;
+                        break;
+                    }
+                } // Fin del bucle de sondeo
+
+                if (!$run_is_terminal) {
+                    error_log("AI Chat Pro - Run {$conflicting_run_id} no alcanzó estado terminal tras sondeo. Se reintentará añadir mensaje de todas formas.");
+                }
+                // Continuar al siguiente intento del bucle while para añadir mensaje
+                continue;
+
+            } else {
+                // No se pudo extraer run_id, tratar como error genérico
+                error_log("AI Chat Pro - No se pudo extraer run_id del error de run activo: " . $api_error_detail);
+                // Dejar que el siguiente bloque maneje el error genérico
+            }
+        } 
+        
+        // Si es otro error 400+ o el error específico no pudo ser manejado (ej. no se extrajo run_id)
+        if ($status_code_msg >= 400) {
+             error_log("AI Chat Pro - Error API añadiendo mensaje (intento {$add_message_attempt}, no manejado específicamente) ($status_code_msg): " . $api_error_detail);
+            if ($add_message_attempt >= $max_add_message_attempts) {
+                return new WP_REST_Response(['message' => sprintf(__('Error de API OpenAI (enviar mensaje): %s', 'ai-chat-pro'), $api_error_detail)], $status_code_msg);
+            }
+            sleep(1); // Pequeña pausa antes de reintentar
+            // Continuar al siguiente intento del bucle while
+        }
+    } // Fin del while $add_message_attempt
+
+    // Si salimos del bucle y $status_code_msg sigue siendo >= 400, significa que todos los intentos fallaron.
+    // Este caso debería ser cubierto por los returns dentro del bucle.
+    // Si $status_code_msg < 400, $body_msg contiene la respuesta exitosa.
 
     // 3. Crear un Run
     $run_payload = ['assistant_id' => $assistant_id];
