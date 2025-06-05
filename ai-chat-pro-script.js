@@ -673,7 +673,7 @@ document.addEventListener("DOMContentLoaded", () => {
         chatInput.disabled = isSending;
         sendButton.disabled = isSending;
         if (isSending) {
-            sendButton.textContent = __('Enviando', 'ai-chat-pro');
+            sendButton.textContent = __('Enviado', 'ai-chat-pro');
         } else {
             sendButton.textContent = aiChatPro.send_button_text;
         }
