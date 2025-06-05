@@ -102,7 +102,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.8.3-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.8.5-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(

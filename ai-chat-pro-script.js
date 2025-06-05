@@ -9,10 +9,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const sendButton = document.getElementById("ai-chat-send-button-pro");
     const widgetTitle = document.getElementById("ai-chat-pro-widget-title");
     const unreadBadge = chatBubble?.querySelector(".ai-chat-pro-unread-badge");
-    const chatHeader = document.getElementById("ai-chat-pro-header"); // Added
-    const chatInputArea = document.getElementById("ai-chat-pro-input-area"); // Added
 
-    if (!chatBubble || !chatWidget || !closeButton || !chatMessagesContainer || !chatInput || !sendButton || !widgetTitle || !chatHeader || !chatInputArea) { // Added checks
+    if (!chatBubble || !chatWidget || !closeButton || !chatMessagesContainer || !chatInput || !sendButton || !widgetTitle) {
         console.warn("AI Chat Pro: Elementos del chat flotante no encontrados.");
         return;
     }
@@ -531,62 +529,50 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     function adjustChatForKeyboard(keyboardVisible) {
-        if (window.innerWidth <= 768 && isChatOpen) { // Solo en móvil y si el chat está abierto
-            const bubbleHeight = chatBubble ? chatBubble.offsetHeight : 50;
-            const bubbleMargin = 15;
-            const spaceForBubble = bubbleHeight + bubbleMargin + 10; // Espacio si el widget se posiciona encima de la burbuja
-
-            const headerHeight = chatHeader ? chatHeader.offsetHeight : 50; // Altura del header del chat
-            const inputAreaHeight = chatInputArea ? chatInputArea.offsetHeight : 70; // Altura del área de input
-            const verticalMargins = 20; // Suma de márgenes superior e inferior para el widget
-
+        if (window.innerWidth <= 768) { // Solo en móvil
+            const bubbleHeight = 60; // Tamaño de la burbuja
+            const bubbleMargin = 15; // Margen inferior de la burbuja
+            const bubbleSpace = bubbleHeight + bubbleMargin + 10; // Espacio total necesario para la burbuja
+            
             if (keyboardVisible) {
-                // Usar visualViewport si está disponible, sino window.innerHeight
-                const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+                const availableHeight = window.innerHeight;
+                const chatHeight = availableHeight - bubbleSpace - 20; // Dejar espacio para la burbuja
                 
-                // La altura total que el widget puede ocupar
-                const widgetMaxHeight = viewportHeight - verticalMargins;
-                chatWidget.style.height = `${widgetMaxHeight}px`;
-                chatWidget.style.maxHeight = `${widgetMaxHeight}px`;
-                chatWidget.style.top = `${verticalMargins / 2}px`; // Centrarlo un poco o ponerlo arriba
-                chatWidget.style.bottom = 'auto'; // Anular el bottom original
-                chatWidget.style.position = 'fixed'; // Asegurar que sea fixed
-
-                // Altura disponible para el contenedor de mensajes
-                const messagesContainerHeight = widgetMaxHeight - headerHeight - inputAreaHeight;
-                chatMessagesContainer.style.height = `${messagesContainerHeight}px`;
-                chatMessagesContainer.style.maxHeight = `${messagesContainerHeight}px`;
+                chatWidget.style.height = `${chatHeight}px`;
+                chatWidget.style.maxHeight = `${chatHeight}px`;
+                chatWidget.style.top = '10px';
+                chatWidget.style.bottom = 'auto';
+                chatWidget.style.position = 'fixed';
+                chatMessagesContainer.style.paddingBottom = '90px';
+                chatMessagesContainer.style.maxHeight = `${chatHeight - 150}px`;
                 
-                // Asegurar que el input area esté fijo abajo dentro del widget
-                chatInputArea.style.position = 'absolute';
-                chatInputArea.style.bottom = '0';
-                chatInputArea.style.left = '0';
-                chatInputArea.style.right = '0';
-                chatInputArea.style.width = '100%'; // Asegurar que ocupe todo el ancho
-                chatInputArea.style.zIndex = '20'; // Por si acaso
-
-                // Scroll al último mensaje
-                chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
+                // Asegurar que el input area esté visible
+                const inputArea = document.getElementById('ai-chat-pro-input-area');
+                if (inputArea) {
+                    inputArea.style.position = 'absolute';
+                    inputArea.style.bottom = '0';
+                    inputArea.style.left = '0';
+                    inputArea.style.right = '0';
+                    inputArea.style.zIndex = '20';
+                }
             } else {
-                // Restaurar estilos originales del widget
-                chatWidget.style.height = ''; // CSS original tomará el control
-                chatWidget.style.maxHeight = ''; // CSS original
-                chatWidget.style.top = ''; // CSS original
-                chatWidget.style.bottom = `${spaceForBubble}px`; // Dejar espacio para la burbuja
-                // chatWidget.style.position = 'fixed'; // Ya debería ser fixed por CSS
-
-                // Restaurar estilos del contenedor de mensajes
-                chatMessagesContainer.style.height = ''; // CSS original
-                chatMessagesContainer.style.maxHeight = ''; // CSS original
+                // Restaurar estilos originales pero manteniendo espacio para la burbuja
+                chatWidget.style.height = '';
+                chatWidget.style.maxHeight = '';
+                chatWidget.style.top = '';
+                chatWidget.style.bottom = `${bubbleSpace}px`; // Mantener espacio para la burbuja
+                chatWidget.style.position = '';
+                chatMessagesContainer.style.paddingBottom = '';
+                chatMessagesContainer.style.maxHeight = '';
                 
-                // Restaurar estilos del área de input
-                chatInputArea.style.position = '';
-                chatInputArea.style.bottom = '';
-                chatInputArea.style.left = '';
-                chatInputArea.style.right = '';
-                chatInputArea.style.width = '';
-                chatInputArea.style.zIndex = '';
+                const inputArea = document.getElementById('ai-chat-pro-input-area');
+                if (inputArea) {
+                    inputArea.style.position = '';
+                    inputArea.style.bottom = '';
+                    inputArea.style.left = '';
+                    inputArea.style.right = '';
+                    inputArea.style.zIndex = '';
+                }
             }
         }
     }
