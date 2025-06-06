@@ -2,7 +2,7 @@
 /*
 Plugin Name: AI Chat Assistant Pro
 Description: Chat público flotante con un asistente de OpenAI.
-Version: 1.9.92
+Version: 1.9.95
 Author: Joan Planas & IA
 */
 
@@ -103,7 +103,7 @@ function ai_chat_pro_enqueue_scripts() {
     
     // Generar un hash único basado en los colores actuales para forzar actualización de cache
     $colors_hash = ai_chat_pro_get_colors_hash();
-    $plugin_version = '1.9.92-' . $colors_hash; // Versión con hash de colores
+    $plugin_version = '1.9.95-' . $colors_hash; // Versión con hash de colores
 
     // Registrar y encolar CSS con versión única basada en colores
     wp_enqueue_style(
@@ -154,9 +154,11 @@ function ai_chat_pro_enqueue_scripts() {
         'type_message_label' => __('Mensaje para %s', 'ai-chat-pro'), // Updated for sprintf, %s will be replaced by ai_label in JS
         'thinking_saved_text' => __('Está escribiendo... (refreshed)', 'ai-chat-pro'),
         'auto_open_config' => ai_chat_pro_get_auto_open_config(),
+        'time_remaining_text' => __('Tiempo restante:', 'ai-chat-pro'),
         'site_url'         => home_url(),
         'current_time'     => current_time('timestamp'),
         'timezone_offset'  => get_option('gmt_offset') * HOUR_IN_SECONDS,
+        'show_remaining_time' => (bool) get_option('ai_chat_pro_show_remaining_time', false),
     ));
 }
 
@@ -202,41 +204,158 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'ai_chat_pro_rest_permission_check', 
     ]);
 });
+// Función para formatear segundos en un formato legible
+function ai_chat_pro_format_seconds($seconds) {
+    if ($seconds <= 0) {
+        return __('unos segundos', 'ai-chat-pro');
+    }
 
-// Rate limiting mejorado
+    $parts = [];
+    $periods = [
+        __('día', 'ai-chat-pro') => 86400,
+        __('hora', 'ai-chat-pro') => 3600,
+        __('minuto', 'ai-chat-pro') => 60,
+        __('segundo', 'ai-chat-pro') => 1,
+    ];
+    $plural_suffixes = [
+        __('día', 'ai-chat-pro') => __('s', 'ai-chat-pro'),
+        __('hora', 'ai-chat-pro') => __('s', 'ai-chat-pro'),
+        __('minuto', 'ai-chat-pro') => __('s', 'ai-chat-pro'),
+        __('segundo', 'ai-chat-pro') => __('s', 'ai-chat-pro'),
+    ];
+
+    foreach ($periods as $name => $secs) {
+        $num = floor($seconds / $secs);
+        if ($num > 0) {
+            $parts[] = $num . ' ' . $name . ($num > 1 ? $plural_suffixes[$name] : '');
+            $seconds -= $num * $secs;
+        }
+    }
+
+    return implode(', ', $parts);
+}
+// Función para verificar el límite de mensajes diarios por IP
+function ai_chat_pro_check_daily_message_limit($ip = null) {
+    if (!$ip) {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    }
+
+    $transient_name = 'ai_chat_daily_limit_' . md5($ip);
+    // get_transient devuelve false si no existe. Lo convertimos a 0.
+    $count = (int) get_transient($transient_name);
+    
+    $max_messages = (int) get_option('ai_chat_pro_message_limit', 10);
+
+    // Si el límite ya se alcanzó, no hacemos nada más que devolver el error.
+    if ($count >= $max_messages) {
+        // Calculamos el tiempo que falta hasta la medianoche del servidor.
+        $seconds_until_midnight = strtotime('tomorrow') - time();
+        return [
+            'allowed'   => false,
+            'remaining' => max(0, $seconds_until_midnight) // Devolvemos el tiempo restante.
+        ];
+    }
+
+    // Si el mensaje está permitido, incrementamos el contador y lo guardamos.
+    $count++;
+    $seconds_until_midnight = strtotime('tomorrow') - time();
+    set_transient($transient_name, $count, $seconds_until_midnight);
+    
+    // Devolvemos que el mensaje actual está permitido.
+    return ['allowed' => true, 'remaining' => 0];
+}
 function ai_chat_pro_check_rate_limit($ip = null) {
     if (!$ip) {
         $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
     }
     
-    $transient_key = 'ai_chat_rate_limit_' . md5($ip);
-    $requests = get_transient($transient_key);
+    $transient_name = 'ai_chat_rate_limit_v4_' . md5($ip); // Usamos v3 para evitar conflictos con datos antiguos
+    $data = get_transient($transient_name);
     
-    if ($requests === false) {
-        $requests = 0;
-    }
-    
-    $max_requests = (int) get_option('ai_chat_pro_rate_limit_count', 30); // Hacer configurable
-    $rate_limit_duration = (int) get_option('ai_chat_pro_rate_limit_duration', HOUR_IN_SECONDS); // Hacer configurable
+    $max_requests = (int) get_option('ai_chat_pro_rate_limit_count', 30);
+    $rate_limit_duration = (int) get_option('ai_chat_pro_rate_limit_duration', HOUR_IN_SECONDS);
 
-    if ($requests >= $max_requests) {
-        return false;
+    // Si no hay datos, es la primera petición en la ventana de tiempo.
+    if ($data === false) {
+        // Almacenamos la hora de inicio de la ventana, no la de expiración.
+        $new_data = [
+            'count' => 1,
+            'start_time' => time() 
+        ];
+        // El transient se sigue guardando con una duración para que se limpie solo de la DB.
+        set_transient($transient_name, $new_data, $rate_limit_duration);
+        return ['allowed' => true, 'remaining' => 0];
     }
     
-    set_transient($transient_key, $requests + 1, $rate_limit_duration);
-    return true;
+    // Si se ha alcanzado el límite...
+    if ($data['count'] >= $max_requests) {
+        // Calculamos la expiración dinámicamente en cada comprobación.
+        // Usamos el 'start_time' guardado y la duración ACTUAL de los ajustes.
+        $expiration_time = $data['start_time'] + $rate_limit_duration;
+        $remaining_seconds = $expiration_time - time();
+        
+        // Si el tiempo ya pasó (porque el admin redujo la duración), el límite ha terminado.
+        if ($remaining_seconds <= 0) {
+            // Borramos el transient viejo y permitimos la solicitud, que creará uno nuevo.
+            delete_transient($transient_name);
+            return ['allowed' => true, 'remaining' => 0];
+        }
+        
+        return ['allowed' => false, 'remaining' => $remaining_seconds];
+    }
+    
+    // Si aún no se alcanza el límite, incrementar el contador y actualizar el transient.
+    $data['count']++;
+    // Volvemos a guardar el transient para actualizar el contador.
+    // Usamos la duración actual por si el admin la ha cambiado.
+    set_transient($transient_name, $data, $rate_limit_duration); 
+    
+    return ['allowed' => true, 'remaining' => 0];
 }
 
 function ai_chat_pro_handle_message(WP_REST_Request $request) {
     // Nonce check is now handled by ai_chat_pro_rest_permission_check
-
-    if (!ai_chat_pro_check_rate_limit()) {
+// 1. Verificar el límite de mensajes diarios
+    $daily_limit_status = ai_chat_pro_check_daily_message_limit();
+    if (!$daily_limit_status['allowed']) {
         $limit_exceeded_message = get_option('ai_chat_pro_limit_exceeded', __('Has alcanzado el límite de mensajes de hoy. Vuelve mañana. Gracias.', 'ai-chat-pro'));
-        // Fallback if the option is empty, though it has a default.
-        if (empty($limit_exceeded_message)) {
-            $limit_exceeded_message = __('Has excedido el límite de solicitudes. Inténtalo más tarde.', 'ai-chat-pro');
+        
+        $show_time = get_option('ai_chat_pro_show_remaining_time', false);
+        $full_message = $limit_exceeded_message;
+
+        if ($show_time && $daily_limit_status['remaining'] > 0) {
+            $time_remaining_str = ai_chat_pro_format_seconds($daily_limit_status['remaining']);
+            $full_message = sprintf(
+                '%s %s %s',
+                $limit_exceeded_message,
+                __('Tiempo restante:', 'ai-chat-pro'),
+                $time_remaining_str
+            );
         }
-        return new WP_REST_Response(['message' => $limit_exceeded_message], 429);
+        
+        // Devolver una respuesta 200 OK pero con un error de límite para que el JS la procese
+        // Añadimos una clave 'limit_exceeded' para identificar este caso específico
+        return new WP_REST_Response(['limit_exceeded' => true, 'message' => $full_message], 200);
+    }
+    // 2. Verificar el límite de peticiones API (rate limit)
+    $rate_limit_status = ai_chat_pro_check_rate_limit();
+    if (!$rate_limit_status['allowed']) {
+        $limit_exceeded_message = get_option('ai_chat_pro_limit_exceeded', __('Has alcanzado el límite de mensajes de hoy. Vuelve mañana. Gracias.', 'ai-chat-pro'));
+        
+        $show_time = get_option('ai_chat_pro_show_remaining_time', false);
+        $full_message = $limit_exceeded_message;
+
+        if ($show_time && $rate_limit_status['remaining'] > 0) {
+            $time_remaining_str = ai_chat_pro_format_seconds($rate_limit_status['remaining']);
+            $full_message = sprintf(
+                '%s %s %s',
+                $limit_exceeded_message,
+                __('Tiempo restante:', 'ai-chat-pro'),
+                $time_remaining_str
+            );
+        }
+        
+      return new WP_REST_Response(['limit_exceeded' => true, 'message' => $full_message], 200);
     }
 
     $params = $request->get_json_params();
@@ -590,7 +709,7 @@ function ai_chat_pro_register_all_settings() {
     register_setting($setting_group, 'ai_chat_pro_assistant_id', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string']);
     register_setting($setting_group, 'ai_chat_pro_chat_title', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Ayudante', 'ai-chat-pro')]);
     
-    // --> NUEVO AJUSTE: Nombre de la IA
+    // Nombre de la IA
     register_setting($setting_group, 'ai_chat_pro_ai_name', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('Ayudante', 'ai-chat-pro')]);
     
     register_setting($setting_group, 'ai_chat_pro_initial_greeting', ['sanitize_callback' => 'sanitize_text_field', 'type' => 'string', 'default' => __('¡Hola! ¿En qué puedo ayudarte hoy?', 'ai-chat-pro')]);
@@ -610,7 +729,7 @@ function ai_chat_pro_register_all_settings() {
     register_setting($setting_group, 'ai_chat_pro_auto_open_exclude_reloads', ['sanitize_callback' => 'rest_sanitize_boolean', 'type' => 'boolean', 'default' => true]);
     register_setting($setting_group, 'ai_chat_pro_auto_open_normalize_urls', ['sanitize_callback' => 'rest_sanitize_boolean', 'type' => 'boolean', 'default' => true]);
     register_setting($setting_group, 'ai_chat_pro_auto_open_session_timeout', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 30]);
-
+    register_setting($setting_group, 'ai_chat_pro_show_remaining_time', ['sanitize_callback' => 'rest_sanitize_boolean', 'type' => 'boolean', 'default' => false]);
     register_setting($setting_group, 'ai_chat_pro_rate_limit_count', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => 30]);
     register_setting($setting_group, 'ai_chat_pro_rate_limit_duration', ['sanitize_callback' => 'absint', 'type' => 'integer', 'default' => HOUR_IN_SECONDS]);
     register_setting($setting_group, 'ai_chat_pro_excluded_pages', ['sanitize_callback' => 'sanitize_textarea_field', 'type' => 'string', 'default' => '']);
@@ -664,7 +783,7 @@ function ai_chat_pro_register_all_settings() {
     add_settings_field('ai_chat_pro_rate_limit_count', __('Límite de Solicitudes API (por IP)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_count', 'default' => 30, 'desc' => __('Número máximo de solicitudes a la API de OpenAI por IP dentro de la duración especificada. Es un límite a nivel de servidor.', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_rate_limit_duration', __('Duración del Límite de Solicitudes (segundos)', 'ai-chat-pro'), 'ai_chat_pro_field_number_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_rate_limit_duration', 'default' => 3600, 'desc' => __('Tiempo en segundos para el cual se aplica el límite de solicitudes. Por defecto: 3600 (1 hora).', 'ai-chat-pro')]);
     add_settings_field('ai_chat_pro_excluded_pages', __('Páginas Excluidas', 'ai-chat-pro'), 'ai_chat_pro_field_textarea_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_excluded_pages', 'desc' => __('Lista de páginas donde NO mostrar el chat. Separa con comas. Puedes usar: IDs de página (ej: 123), slugs (ej: contacto), o rutas (ej: /tienda/checkout). Ejemplo: 123, contacto, /tienda/checkout', 'ai-chat-pro')]);
-
+    add_settings_field('ai_chat_pro_show_remaining_time', __('Mostrar Tiempo Restante en Límites', 'ai-chat-pro'), 'ai_chat_pro_field_checkbox_cb', $page_slug, 'ai_chat_pro_limits_section', ['id' => 'ai_chat_pro_show_remaining_time', 'desc' => __('Si se marca, se mostrará el tiempo restante cuando un usuario alcance el límite de mensajes diarios o el límite de solicitudes de la API.', 'ai-chat-pro')]);
     // Sección de Colores del Chat
     add_settings_section('ai_chat_pro_colors_section', __('Colores del Chat', 'ai-chat-pro'), 'ai_chat_pro_colors_section_callback', $page_slug);
     add_settings_field('ai_chat_pro_primary_color', __('Color Principal (Header)', 'ai-chat-pro'), 'ai_chat_pro_field_color_cb', $page_slug, 'ai_chat_pro_colors_section', ['id' => 'ai_chat_pro_primary_color', 'default' => '#6a0dad', 'desc' => __('Color principal del header del chat.', 'ai-chat-pro')]);

@@ -1,5 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const { __ } = wp.i18n; // Para traducciones en JS
+    // Para traducciones en JS, con un fallback para máxima compatibilidad
+const __ = (window.wp && window.wp.i18n && window.wp.i18n.__) 
+           ? window.wp.i18n.__ 
+           : (text, domain) => text;
 
     const chatBubble = document.getElementById("ai-chat-pro-bubble");
     const chatWidget = document.getElementById("ai-chat-pro-widget");
@@ -51,7 +54,31 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
     }
-    
+    // Función en JS para formatear el tiempo restante en formato legible
+    function formatRemainingTime(milliseconds) {
+        if (milliseconds <= 0) {
+            return __('unos segundos', 'ai-chat-pro');
+        }
+
+        let totalSeconds = Math.floor(milliseconds / 1000);
+        let hours = Math.floor(totalSeconds / 3600);
+        totalSeconds %= 3600;
+        let minutes = Math.floor(totalSeconds / 60);
+        let seconds = totalSeconds % 60;
+
+        let parts = [];
+        if (hours > 0) {
+            parts.push(`${hours} ${hours > 1 ? __('horas', 'ai-chat-pro') : __('hora', 'ai-chat-pro')}`);
+        }
+        if (minutes > 0) {
+            parts.push(`${minutes} ${minutes > 1 ? __('minutos', 'ai-chat-pro') : __('minuto', 'ai-chat-pro')}`);
+        }
+        if (parts.length === 0 && seconds > 0) { // Solo mostrar segundos si no hay horas/minutos
+            parts.push(`${seconds} ${seconds > 1 ? __('segundos', 'ai-chat-pro') : __('segundo', 'ai-chat-pro')}`);
+        }
+
+        return parts.join(', ');
+    }
     function toggleChatWidget(forceOpen = null) {
         const open = forceOpen !== null ? forceOpen : !chatWidget.classList.contains("active");
         if (open) {
@@ -696,23 +723,7 @@ document.addEventListener("DOMContentLoaded", () => {
         appendMessage(aiChatPro.thinking, aiChatPro.ai_label, true); // Nuevo "pensando"
 
         let thread_id = localStorage.getItem("ai_chat_pro_thread_id");
-        let count = parseInt(localStorage.getItem("ai_chat_pro_message_count") || "0", 10);
-        const today = new Date().toISOString().slice(0, 10);
-        const lastMessageDate = localStorage.getItem("ai_chat_pro_last_message_date");
-
-        if (lastMessageDate !== today) {
-            count = 0; // Reset count for a new day
-            localStorage.setItem("ai_chat_pro_message_count", "0");
-            localStorage.setItem("ai_chat_pro_last_message_date", today);
-        }
-
-        if (count >= aiChatPro.message_limit_count) {
-            removeThinkingMessage();
-            appendMessage(aiChatPro.limit_exceeded, aiChatPro.ai_label);
-            saveMessageToHistory(aiChatPro.limit_exceeded, aiChatPro.ai_label);
-            setSendingState(false);
-            return;
-        }
+       
 
         try {
             const res = await fetch(aiChatPro.rest_url_message, {
@@ -729,9 +740,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 throw new Error(errorData.message || `HTTP error ${res.status}`);
             }
             const data = await res.json();
-            
-            localStorage.setItem("ai_chat_pro_message_count", (count + 1).toString());
-            localStorage.setItem("ai_chat_pro_last_message_date", today);
+             // Manejar respuesta de límite excedido enviada desde PHP
+            if (data.limit_exceeded) {
+                removeThinkingMessage();
+                appendMessage(data.message, aiChatPro.ai_label);
+                saveMessageToHistory(data.message, aiChatPro.ai_label);
+                setSendingState(false);
+                return; // Detener la ejecución aquí
+            }
             if (data.thread_id) localStorage.setItem("ai_chat_pro_thread_id", data.thread_id);
 
             if (data.reply) { // Respuesta directa
